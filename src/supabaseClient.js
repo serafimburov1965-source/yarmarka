@@ -9,4 +9,6 @@ if (!url || !key) {
   );
 }
 
-export const supabase = url && key ? createClient(url, key) : null;
+export const supabase = url && key ? createClient(url, key, {
+  global: { fetch: (...args) => fetch(...args) },
+}) : null;
