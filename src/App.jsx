@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import {
   Search, Plus, X, MapPin, Phone, Smartphone, Wrench, Car,
   Shirt, Home, Gamepad2, Package, Check, Tag, ImagePlus,
   MessageCircle, LifeBuoy, User, LogOut, Send, ArrowLeft, Mail, Lock,
-  Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye
+  Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { initTelegram, getTelegramUser } from "./telegram";
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
 const MAX_PHOTOS = 5;
 const FREE_LISTINGS_LIMIT = 5;
@@ -52,7 +60,26 @@ const CATEGORIES = [
   { id: "other", label: "Разное", icon: Package },
 ];
 
-const CITIES = ["Пермь", "Москва", "Санкт-Петербург", "Екатеринбург", "Казань", "Другой"];
+const CITIES = [
+  "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань", "Нижний Новгород",
+  "Челябинск", "Красноярск", "Самара", "Уфа", "Ростов-на-Дону", "Краснодар", "Омск",
+  "Воронеж", "Пермь", "Волгоград", "Саратов", "Тюмень", "Тольятти", "Махачкала",
+  "Барнаул", "Иркутск", "Ульяновск", "Хабаровск", "Ярославль", "Владивосток", "Томск",
+  "Оренбург", "Кемерово", "Новокузнецк", "Рязань", "Астрахань", "Пенза", "Липецк",
+  "Киров", "Чебоксары", "Тула", "Калининград", "Балашиха", "Курск", "Севастополь",
+  "Ставрополь", "Симферополь", "Улан-Удэ", "Тверь", "Магнитогорск", "Сочи", "Иваново",
+  "Брянск", "Белгород", "Сургут", "Владимир", "Нижний Тагил", "Архангельск", "Чита",
+  "Калуга", "Смоленск", "Волжский", "Якутск", "Саранск", "Курган", "Орёл", "Череповец",
+  "Вологда", "Владикавказ", "Мурманск", "Тамбов", "Стерлитамак", "Грозный", "Якутск",
+  "Кострома", "Петрозаводск", "Нижневартовск", "Новороссийск", "Йошкар-Ола", "Комсомольск-на-Амуре",
+  "Таганрог", "Сыктывкар", "Нальчик", "Шахты", "Дзержинск", "Орск", "Братск", "Ангарск",
+  "Энгельс", "Благовещенск", "Королёв", "Псков", "Бийск", "Прокопьевск", "Армавир",
+  "Балаково", "Рыбинск", "Абакан", "Северодвинск", "Норильск", "Волгодонск", "Уссурийск",
+  "Пятигорск", "Дербент", "Новочеркасск", "Каменск-Уральский", "Батайск", "Нефтекамск",
+  "Черкесск", "Майкоп", "Элиста", "Горно-Алтайск", "Анадырь", "Магадан", "Южно-Сахалинск",
+  "Петропавловск-Камчатский", "Биробиджан", "Салехард", "Ханты-Мансийск", "Нарьян-Мар",
+  "Другой",
+];
 const CARD_TINTS = ["#E7EFE6", "#F2E6D8", "#EAE3F0", "#E6ECF2", "#F2E0DD", "#E9F0E0"];
 
 function catIcon(id) {
@@ -322,13 +349,13 @@ export default function App() {
           </div>
         </div>
         {tab === "feed" && (
-          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2 overflow-x-auto">
-            <Pill active={activeCat === "all" && !freeOnly} onClick={() => { setActiveCat("all"); setFreeOnly(false); }} label="Всё" />
-            <Pill active={freeOnly} onClick={() => setFreeOnly(!freeOnly)} label="🎁 Даром" />
-            {CATEGORIES.map((c) => (
-              <Pill key={c.id} active={activeCat === c.id} onClick={() => setActiveCat(c.id)} label={c.label} Icon={c.icon} />
-            ))}
-            <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
+            <CategorySwiper
+              activeCat={activeCat}
+              freeOnly={freeOnly}
+              onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
+            />
+            <div className="flex items-center gap-1 flex-shrink-0">
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
                 <option value="newest" style={{ color: "#000" }}>Сначала новые</option>
                 <option value="price_asc" style={{ color: "#000" }}>Дешевле</option>
@@ -524,6 +551,67 @@ function LoggedOutPrompt({ onLogin, text }) {
   );
 }
 
+function CategorySwiper({ activeCat, freeOnly, onSelect }) {
+  const scrollRef = useRef(null);
+  const items = [{ id: "all", label: "Всё", icon: null }, { id: "free", label: "Даром", icon: null }, ...CATEGORIES];
+
+  function scrollBy(dir) {
+    scrollRef.current?.scrollBy({ left: dir * 110, behavior: "smooth" });
+  }
+
+  return (
+    <div className="relative flex-1 min-w-0 flex items-center gap-1">
+      <button onClick={() => scrollBy(-1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
+        <ChevronLeft size={13} color="#F2EFE4" />
+      </button>
+      <div ref={scrollRef} className="flex-1 flex gap-2 overflow-x-auto" style={{ scrollSnapType: "x mandatory", scrollBehavior: "smooth" }}>
+        {items.map((it) => {
+          const isActive = it.id === "free" ? freeOnly : (it.id === "all" ? activeCat === "all" && !freeOnly : activeCat === it.id && !freeOnly);
+          const Icon = it.icon;
+          return (
+            <button
+              key={it.id}
+              onClick={() => onSelect(it.id)}
+              className="flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-xl flex-shrink-0 font-body font-bold text-[11px] whitespace-nowrap border"
+              style={{
+                scrollSnapAlign: "start",
+                background: isActive ? "#FFC93C" : "transparent",
+                color: isActive ? "#1C1F1B" : "#F2EFE4",
+                borderColor: isActive ? "#FFC93C" : "#3A3D37",
+                minWidth: 64,
+              }}
+            >
+              {Icon ? <Icon size={15} /> : <span>{it.id === "free" ? "🎁" : "🏠"}</span>}
+              {it.label}
+            </button>
+          );
+        })}
+      </div>
+      <button onClick={() => scrollBy(1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
+        <ChevronRight size={13} color="#F2EFE4" />
+      </button>
+    </div>
+  );
+}
+
+function MapClickHandler({ onPick }) {
+  useMapEvents({ click(e) { onPick(e.latlng.lat, e.latlng.lng); } });
+  return null;
+}
+
+function LocationPicker({ lat, lng, onChange }) {
+  const center = lat && lng ? [lat, lng] : [55.751244, 37.618423];
+  return (
+    <div className="rounded-lg overflow-hidden border-2" style={{ borderColor: "#1C1F1B22", height: 220 }}>
+      <MapContainer center={center} zoom={lat ? 13 : 4} style={{ height: "100%", width: "100%" }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+        {lat && lng && <Marker position={[lat, lng]} />}
+        <MapClickHandler onPick={onChange} />
+      </MapContainer>
+    </div>
+  );
+}
+
 function Pill({ active, onClick, label, Icon }) {
   return (
     <button onClick={onClick} className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition font-body border flex-shrink-0"
@@ -598,6 +686,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
   const [city, setCity] = useState(initial?.city && CITIES.includes(initial.city) ? initial.city : (initial?.city ? "Другой" : "Пермь"));
   const [customCity, setCustomCity] = useState(initial?.city && !CITIES.includes(initial.city) ? initial.city : "");
   const [address, setAddress] = useState(initial?.address || "");
+  const [lat, setLat] = useState(initial?.lat || null);
+  const [lng, setLng] = useState(initial?.lng || null);
+  const [showMap, setShowMap] = useState(false);
   const [condition, setCondition] = useState(initial?.condition || "used");
   const [description, setDescription] = useState(initial?.description || "");
   const [contact, setContact] = useState(initial?.contact || "");
@@ -641,7 +732,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
     await onSubmit({
       title: title.trim(),
       price: price === "" ? 0 : Math.max(0, Number(price)),
-      category, city: finalCity, address: address.trim(), condition,
+      category, city: finalCity, address: address.trim(), lat, lng, condition,
       description: description.trim(), contact: contact.trim(),
       barter, delivery, images,
     });
@@ -705,6 +796,10 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
             <Field label="Адрес / район (необязательно)">
               <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Например: ул. Ленина, район Центр" className="input" />
             </Field>
+            <button type="button" onClick={() => setShowMap(!showMap)} className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#2F6B4F" }}>
+              <MapPin size={13} /> {showMap ? "Скрыть карту" : lat ? "Точка отмечена на карте — изменить" : "Отметить точку на карте"}
+            </button>
+            {showMap && <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />}
             <Field label="Состояние">
               <div className="flex gap-2">
                 {[["new", "Новое"], ["used", "Б/у"]].map(([val, label]) => (
@@ -768,6 +863,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
   const [reviews, setReviews] = useState([]);
   const [showReview, setShowReview] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showSeller, setShowSeller] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const viewedRef = useRef(false);
 
@@ -850,6 +946,11 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
               <MapPin size={12} /> {listing.address}
             </p>
           )}
+          {listing.lat && listing.lng && (
+            <a href={`https://www.openstreetmap.org/?mlat=${listing.lat}&mlon=${listing.lng}&zoom=15`} target="_blank" rel="noreferrer" className="text-xs font-bold underline" style={{ color: "#2F6B4F" }}>
+              Открыть точку на карте
+            </a>
+          )}
           {listing.description && <p className="text-sm font-body leading-relaxed">{listing.description}</p>}
           <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: "#E8E3D2" }}>
             <Phone size={16} style={{ color: "#2F6B4F" }} />
@@ -858,7 +959,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
           {listing.author_name && (
             <div className="flex items-center justify-between">
-              <p className="text-xs" style={{ color: "#8B8677" }}>Продавец: {listing.author_name}</p>
+              <button onClick={() => setShowSeller(true)} className="text-xs underline" style={{ color: "#8B8677" }}>Продавец: {listing.author_name}</button>
               <div className="flex items-center gap-1.5">
                 {reviews.length > 0 ? (
                   <>
@@ -923,6 +1024,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
       )}
       {showReport && (
         <ReportModal listingId={listing.id} reporterRef={currentUser?.ref || null} onClose={() => setShowReport(false)} />
+      )}
+      {showSeller && (
+        <SellerProfileModal sellerRef={listing.author_ref} onClose={() => setShowSeller(false)} onOpenListing={(l) => { setShowSeller(false); }} />
       )}
     </div>
   );
@@ -1004,6 +1108,76 @@ function ReportModal({ listingId, reporterRef, onClose }) {
               {busy ? "Отправляем..." : "Отправить жалобу"}
             </button>
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SellerProfileModal({ sellerRef, onClose }) {
+  const [profile, setProfile] = useState(null);
+  const [listings, setListings] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!supabase || !sellerRef) return;
+    Promise.all([
+      supabase.from("profiles").select("*").eq("ref", sellerRef).maybeSingle(),
+      supabase.from("listings").select("*").eq("author_ref", sellerRef).order("created_at", { ascending: false }),
+      supabase.from("reviews").select("*").eq("seller_ref", sellerRef).order("created_at", { ascending: false }),
+    ]).then(([p, l, r]) => {
+      setProfile(p.data || null);
+      setListings(l.data || []);
+      setReviews(r.data || []);
+      setLoading(false);
+    });
+  }, [sellerRef]);
+
+  const avgRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Профиль продавца</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        {loading ? (
+          <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Загружаем...</p>
+        ) : !profile ? (
+          <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Профиль не найден</p>
+        ) : (
+          <div className="p-5 flex flex-col gap-5">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "#2F6B4F" }}>
+                {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className="font-display font-bold text-xl text-white">{profile.name.slice(0, 1).toUpperCase()}</span>}
+              </div>
+              <div>
+                <p className="font-display font-bold text-base">{profile.name}</p>
+                <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city}</p>
+                {reviews.length > 0 ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <StarRow value={avgRating} size={12} />
+                    <span className="text-[10px] font-bold" style={{ color: "#8B8677" }}>({reviews.length} отзывов)</span>
+                  </div>
+                ) : (
+                  <span className="text-[10px]" style={{ color: "#8B8677" }}>Нет отзывов</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-display font-bold text-sm mb-2">Объявления ({listings.length})</h3>
+              {listings.length === 0 ? (
+                <p className="text-xs" style={{ color: "#8B8677" }}>Пока ничего не выложено</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {listings.map((l) => <ListingCard key={l.id} listing={l} onOpen={() => {}} isFavorite={false} onToggleFavorite={() => {}} />)}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
