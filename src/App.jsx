@@ -1060,10 +1060,11 @@ function RegisterScreen({ currentUser, onDone }) {
 }
 
 function AuthModal({ onClose, onSuccess }) {
-  const [mode, setMode] = useState("signin");
+  const [mode, setMode] = useState("signin"); // signin | signup | reset
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -1076,10 +1077,28 @@ function AuthModal({ onClose, onSuccess }) {
       : await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setBusy(false);
     if (error) {
-      setError(error.message.includes("already registered") ? "Такой email уже зарегистрирован — войди" : "Ошибка: проверь email и пароль");
+      setError(
+        error.message.includes("already registered") ? "Такой email уже зарегистрирован — войди" :
+        error.message.includes("not confirmed") ? "Email не подтверждён — попроси администратора выключить подтверждение почты" :
+        "Ошибка: проверь email и пароль"
+      );
       return;
     }
     onSuccess();
+  }
+
+  async function sendReset() {
+    if (!supabase) return;
+    if (!email.trim()) return setError("Укажи email");
+    setBusy(true);
+    setError("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    setBusy(false);
+    if (error) {
+      setError("Не получилось отправить письмо");
+      return;
+    }
+    setInfo("Письмо со ссылкой для смены пароля отправлено на " + email.trim());
   }
 
   async function oauthSignIn(provider) {
@@ -1090,6 +1109,39 @@ function AuthModal({ onClose, onSuccess }) {
       setBusy(false);
       setError("Не получилось войти через " + provider);
     }
+  }
+
+  if (mode === "reset") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+        <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+          <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
+            <h2 className="font-display font-bold text-base">Восстановление пароля</h2>
+            <button onClick={onClose}><X size={20} /></button>
+          </div>
+          <div className="p-5 flex flex-col gap-4">
+            <Field label="Email">
+              <div className="relative">
+                <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="input pl-8" />
+              </div>
+            </Field>
+            {info && <p className="text-xs font-bold" style={{ color: "#2F6B4F" }}>{info}</p>}
+            {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
+            <button onClick={sendReset} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
+              {busy ? "Секунду..." : "Отправить письмо"}
+            </button>
+            <button onClick={() => { setMode("signin"); setError(""); setInfo(""); }} className="text-xs font-bold text-center" style={{ color: "#2F6B4F" }}>
+              Назад ко входу
+            </button>
+          </div>
+          <style>{`
+            .input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }
+            .input:focus { border-color: #2F6B4F; }
+          `}</style>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1129,9 +1181,16 @@ function AuthModal({ onClose, onSuccess }) {
           <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
             {busy ? "Секунду..." : mode === "signup" ? "Зарегистрироваться" : "Войти"}
           </button>
-          <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="text-xs font-bold text-center" style={{ color: "#2F6B4F" }}>
-            {mode === "signup" ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Зарегистрироваться"}
-          </button>
+          <div className="flex items-center justify-between">
+            <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="text-xs font-bold" style={{ color: "#2F6B4F" }}>
+              {mode === "signup" ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Зарегистрироваться"}
+            </button>
+            {mode === "signin" && (
+              <button onClick={() => { setMode("reset"); setError(""); }} className="text-xs font-bold" style={{ color: "#8B8677" }}>
+                Забыли пароль?
+              </button>
+            )}
+          </div>
         </div>
         <style>{`
           .input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }
