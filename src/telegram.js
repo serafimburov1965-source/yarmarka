@@ -14,3 +14,8 @@ export function getTelegramUser() {
   const tg = getTelegram();
   return tg?.initDataUnsafe?.user || null;
 }
+
+export function getStartParam() {
+  const tg = getTelegram();
+  return tg?.initDataUnsafe?.start_param || null;
+}
