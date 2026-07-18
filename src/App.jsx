@@ -8,10 +8,12 @@ import {
   Search, Plus, X, MapPin, Phone, Smartphone, Wrench, Car,
   Shirt, Home, Gamepad2, Package, Check, Tag, ImagePlus,
   MessageCircle, LifeBuoy, User, LogOut, Send, ArrowLeft, Mail, Lock,
-  Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight
+  Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
+  QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "./supabaseClient";
-import { initTelegram, getTelegramUser } from "./telegram";
+import { initTelegram, getTelegramUser, getStartParam } from "./telegram";
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
@@ -113,6 +115,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("all");
   const [freeOnly, setFreeOnly] = useState(false);
+  const [boardMode, setBoardMode] = useState("sell"); // sell | want
   const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc
   const [showCreate, setShowCreate] = useState(false);
   const [editListing, setEditListing] = useState(null);
@@ -155,6 +158,17 @@ export default function App() {
       return () => sub.subscription.unsubscribe();
     }
   }, []);
+
+  useEffect(() => {
+    if (!listings.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const deepLinkId = params.get("listing") || getStartParam();
+    if (deepLinkId) {
+      const found = listings.find((l) => l.id === deepLinkId);
+      if (found) setShowDetail(found);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listings.length]);
 
   useEffect(() => {
     if (!currentUser || !supabase) {
@@ -301,6 +315,7 @@ export default function App() {
 
   const filtered = useMemo(() => {
     let list = listings
+      .filter((l) => (l.post_type || "sell") === boardMode)
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
       .filter((l) => {
@@ -311,7 +326,7 @@ export default function App() {
     if (sortBy === "price_asc") list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
     else if (sortBy === "price_desc") list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
     return list;
-  }, [listings, activeCat, freeOnly, search, sortBy]);
+  }, [listings, activeCat, freeOnly, search, sortBy, boardMode]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
 
@@ -349,25 +364,35 @@ export default function App() {
           </div>
         </div>
         {tab === "feed" && (
-          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
-            <CategorySwiper
-              activeCat={activeCat}
-              freeOnly={freeOnly}
-              onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
-            />
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
-                <option value="newest" style={{ color: "#000" }}>Сначала новые</option>
-                <option value="price_asc" style={{ color: "#000" }}>Дешевле</option>
-                <option value="price_desc" style={{ color: "#000" }}>Дороже</option>
-              </select>
-              {currentUser && (
-                <button onClick={saveCurrentSearch} title="Сохранить поиск" className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
-                  <Bookmark size={13} color="#F2EFE4" />
+          <>
+            <div className="max-w-6xl mx-auto px-4 pt-2 flex gap-2">
+              {[["sell", "Продают"], ["want", "Ищут"]].map(([val, label]) => (
+                <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border"
+                  style={boardMode === val ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
+                  {label}
                 </button>
-              )}
+              ))}
             </div>
-          </div>
+            <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
+              <CategorySwiper
+                activeCat={activeCat}
+                freeOnly={freeOnly}
+                onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
+              />
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
+                  <option value="newest" style={{ color: "#000" }}>Сначала новые</option>
+                  <option value="price_asc" style={{ color: "#000" }}>Дешевле</option>
+                  <option value="price_desc" style={{ color: "#000" }}>Дороже</option>
+                </select>
+                {currentUser && (
+                  <button onClick={saveCurrentSearch} title="Сохранить поиск" className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
+                    <Bookmark size={13} color="#F2EFE4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </header>
 
@@ -420,6 +445,10 @@ export default function App() {
             ) : (
               <LoggedOutPrompt onLogin={() => setShowAuth(true)} text="Войди, чтобы видеть избранное" />
             )
+          )}
+
+          {tab === "events" && (
+            <EventsTab currentUser={currentUser} profile={profile} onRequireAuth={requireAuth} />
           )}
 
           {tab === "chats" && (
@@ -519,6 +548,7 @@ function BottomNav({ tab, setTab }) {
   const items = [
     { id: "feed", label: "Лента", icon: Home },
     { id: "favorites", label: "Избранное", icon: Heart },
+    { id: "events", label: "События", icon: Calendar },
     { id: "chats", label: "Сообщения", icon: MessageCircle },
     { id: "profile", label: "Профиль", icon: User },
   ];
@@ -625,6 +655,8 @@ function Pill({ active, onClick, label, Icon }) {
 function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
   const Icon = catIcon(listing.category);
   const isFree = Number(listing.price) === 0;
+  const isWant = listing.post_type === "want";
+  const isReserved = listing.reserved_until && new Date(listing.reserved_until) > new Date();
   const cover = listing.images && listing.images.length > 0 ? listing.images[0] : null;
   return (
     <div onClick={onOpen} className="text-left rounded-2xl overflow-hidden border-2 relative transition hover:-translate-y-1 hover:shadow-xl cursor-pointer" style={{ background: listing.tint || "#EAE3F0", borderColor: "#1C1F1B22" }}>
@@ -635,8 +667,15 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
       >
         <Heart size={14} color={isFavorite ? "#E1543D" : "#F2EFE4"} fill={isFavorite ? "#E1543D" : "none"} />
       </button>
-      {isFree && (
+      {isWant ? (
+        <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#C7B8E8", color: "#1C1F1B" }}>ИЩУ</div>
+      ) : isFree ? (
         <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#FFC93C", color: "#1C1F1B" }}>ДАРОМ</div>
+      ) : null}
+      {isReserved && (
+        <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: "#1C1F1BDD", color: "#FFC93C" }}>
+          <Timer size={10} /> Придержано
+        </div>
       )}
       {cover ? (
         <div className="w-full aspect-[4/3] overflow-hidden"><img src={cover} alt={listing.title} className="w-full h-full object-cover" /></div>
@@ -648,7 +687,7 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
           </div>
         )}
         <h3 className="font-body font-bold text-sm mb-1 line-clamp-2" style={{ color: "#1C1F1B" }}>{listing.title}</h3>
-        <p className="font-mono font-bold text-lg mb-2" style={{ color: "#2F6B4F" }}>{isFree ? "Даром" : `${Number(listing.price).toLocaleString("ru-RU")} ₽`}</p>
+        <p className="font-mono font-bold text-lg mb-2" style={{ color: "#2F6B4F" }}>{isWant ? "Ищу" : isFree ? "Даром" : `${Number(listing.price).toLocaleString("ru-RU")} ₽`}</p>
         {listing.barter && (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-2" style={{ background: "#E6ECF2", color: "#1C1F1B" }}>
             <Repeat size={10} /> Обмен
@@ -680,6 +719,7 @@ function EmptyState({ onCreate, hasAny }) {
 
 function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
   const isEdit = mode === "edit";
+  const [postType, setPostType] = useState(initial?.post_type || "sell");
   const [title, setTitle] = useState(initial?.title || "");
   const [price, setPrice] = useState(initial ? String(initial.price ?? "") : "");
   const [category, setCategory] = useState(initial?.category || "electronics");
@@ -694,6 +734,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
   const [contact, setContact] = useState(initial?.contact || "");
   const [barter, setBarter] = useState(initial?.barter || false);
   const [delivery, setDelivery] = useState(initial?.delivery || DELIVERY_OPTIONS[0]);
+  const [autoDiscount, setAutoDiscount] = useState(initial?.auto_discount_enabled || false);
+  const [discountPercent, setDiscountPercent] = useState(initial?.auto_discount_percent || 5);
+  const [discountDays, setDiscountDays] = useState(initial?.auto_discount_days || 3);
   const [images, setImages] = useState(initial?.images || []);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -734,7 +777,10 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
       price: price === "" ? 0 : Math.max(0, Number(price)),
       category, city: finalCity, address: address.trim(), lat, lng, condition,
       description: description.trim(), contact: contact.trim(),
-      barter, delivery, images,
+      barter, delivery, images, post_type: postType,
+      auto_discount_enabled: autoDiscount,
+      auto_discount_percent: Number(discountPercent) || 5,
+      auto_discount_days: Number(discountDays) || 3,
     });
     setSubmitting(false);
   }
@@ -753,6 +799,14 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
           </div>
         ) : (
           <div className="p-5 flex flex-col gap-4">
+            <div className="flex gap-2">
+              {[["sell", "Продаю"], ["want", "Ищу"]].map(([val, label]) => (
+                <button key={val} onClick={() => setPostType(val)} className="flex-1 px-3 py-2.5 rounded-lg text-sm font-bold border-2 font-body"
+                  style={postType === val ? { background: "#2F6B4F", color: "#fff", borderColor: "#2F6B4F" } : { background: "#fff", borderColor: "#1C1F1B22", color: "#1C1F1B" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: iPhone 13, 128GB" className="input" /></Field>
             <Field label={`Фото (до ${MAX_PHOTOS})`}>
               <div className="flex flex-wrap gap-2">
@@ -819,6 +873,23 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
               <input type="checkbox" checked={barter} onChange={(e) => setBarter(e.target.checked)} className="w-4 h-4" />
               <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Repeat size={13} /> Готов на обмен</span>
             </label>
+            {Number(price) > 0 && (
+              <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                  <input type="checkbox" checked={autoDiscount} onChange={(e) => setAutoDiscount(e.target.checked)} className="w-4 h-4" />
+                  <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены</span>
+                </label>
+                {autoDiscount && (
+                  <div className="flex gap-2 items-center text-xs" style={{ color: "#5B584E" }}>
+                    снижать на
+                    <input type="number" min="1" max="50" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
+                    % каждые
+                    <input type="number" min="1" max="30" value={discountDays} onChange={(e) => setDiscountDays(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
+                    дн.
+                  </div>
+                )}
+              </div>
+            )}
             <Field label="Описание"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Кратко расскажи о товаре" className="input resize-none" /></Field>
             <Field label="Контакт (телефон / телеграм)"><input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@username или +7..." className="input" /></Field>
             {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
@@ -864,8 +935,19 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
   const [showReview, setShowReview] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showSeller, setShowSeller] = useState(false);
+  const [showQR, setShowQR] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const viewedRef = useRef(false);
+
+  const [reservedUntil, setReservedUntil] = useState(listing.reserved_until);
+  const isReserved = reservedUntil && new Date(reservedUntil) > new Date();
+
+  async function reserve() {
+    if (!supabase) return;
+    const until = new Date(Date.now() + 30 * 60000).toISOString();
+    await supabase.from("listings").update({ reserved_until: until, reserved_by: currentUser.ref }).eq("id", listing.id);
+    setReservedUntil(until);
+  }
 
   useEffect(() => {
     if (!supabase) return;
@@ -939,6 +1021,11 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
                 <Truck size={11} /> {listing.delivery}
               </span>
             )}
+            {isReserved && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                <Timer size={11} /> Придержано до {new Date(reservedUntil).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
           </div>
 
           {listing.address && (
@@ -975,9 +1062,16 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
           {!isOwner && (
             <>
-              <button onClick={onMessageSeller} className="flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm text-white" style={{ background: "#1C1F1B" }}>
-                <MessageCircle size={16} /> Написать продавцу
-              </button>
+              <div className="flex gap-2">
+                <button onClick={onMessageSeller} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm text-white" style={{ background: "#1C1F1B" }}>
+                  <MessageCircle size={16} /> Написать продавцу
+                </button>
+              </div>
+              {!isReserved && (
+                <button onClick={() => (requireAuth() ? reserve() : null)} className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
+                  <Timer size={13} /> Придержать на 30 минут
+                </button>
+              )}
               <div className="flex gap-2">
                 <button onClick={() => (requireAuth() ? setShowReview(true) : null)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
                   <Star size={13} /> Оставить отзыв
@@ -989,10 +1083,19 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
             </>
           )}
 
+          {isOwner && listing.auto_discount_enabled && (
+            <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}>
+              <TrendingDown size={12} /> Цена снижается на {listing.auto_discount_percent}% каждые {listing.auto_discount_days} дн.
+            </p>
+          )}
+
           {isOwner && (
             <div className="flex gap-2">
               <button onClick={onEdit} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
                 <Pencil size={13} /> Изменить
+              </button>
+              <button onClick={() => setShowQR(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
+                <QrCode size={13} /> QR-стикер
               </button>
               <button onClick={() => setConfirmDelete(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22", color: "#E1543D" }}>
                 <Trash2 size={13} /> Удалить
@@ -1028,6 +1131,30 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
       {showSeller && (
         <SellerProfileModal sellerRef={listing.author_ref} onClose={() => setShowSeller(false)} onOpenListing={(l) => { setShowSeller(false); }} />
       )}
+      {showQR && (
+        <QRModal listing={listing} onClose={() => setShowQR(false)} />
+      )}
+    </div>
+  );
+}
+
+function QRModal({ listing, onClose }) {
+  const url = `${window.location.origin}/?listing=${listing.id}`;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-base">QR-стикер</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="bg-white p-4 rounded-xl inline-block mb-3">
+          <QRCodeSVG value={url} size={180} />
+        </div>
+        <p className="font-body font-bold text-sm mb-1">{listing.title}</p>
+        <p className="text-xs mb-4" style={{ color: "#8B8677" }}>Наклей на товар — сканирование сразу откроет это объявление</p>
+        <p className="text-[10px] break-all" style={{ color: "#8B8677" }}>{url}</p>
+        <p className="text-[11px] mt-3" style={{ color: "#5B584E" }}>Сделай скриншот этого экрана, чтобы распечатать</p>
+      </div>
     </div>
   );
 }
@@ -1513,6 +1640,201 @@ function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySe
   );
 }
 
+function EventsTab({ currentUser, profile, onRequireAuth }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showDetail, setShowDetail] = useState(null);
+
+  async function load() {
+    if (!supabase) return;
+    setLoading(true);
+    const { data } = await supabase.from("events").select("*").gte("event_date", new Date(Date.now() - 86400000).toISOString()).order("event_date", { ascending: true });
+    setEvents(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-display font-bold text-lg">Барахолки-события</h2>
+        <button onClick={() => (onRequireAuth() ? setShowCreate(true) : null)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-body font-bold text-xs text-white" style={{ background: "#2F6B4F" }}>
+          <Plus size={14} /> Создать
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Загружаем...</p>
+      ) : events.length === 0 ? (
+        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Пока нет запланированных встреч — стань первым, кто организует</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {events.map((ev) => (
+            <button key={ev.id} onClick={() => setShowDetail(ev)} className="text-left p-4 rounded-xl" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+              <div className="flex items-center justify-between mb-1">
+                <p className="font-display font-bold text-sm">{ev.title}</p>
+                <span className="text-[11px] font-bold px-2 py-1 rounded-full" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                  {new Date(ev.event_date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
+                </span>
+              </div>
+              <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><MapPin size={11} /> {ev.location}</p>
+            </button>
+          ))}
+        </div>
+      )}
+      {showCreate && (
+        <CreateEventModal
+          currentUser={currentUser}
+          profile={profile}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
+      {showDetail && (
+        <EventDetailModal
+          event={showDetail}
+          currentUser={currentUser}
+          profile={profile}
+          onClose={() => setShowDetail(null)}
+          onRequireAuth={onRequireAuth}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateEventModal({ currentUser, profile, onClose, onCreated }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [date, setDate] = useState("");
+  const [lat, setLat] = useState(null);
+  const [lng, setLng] = useState(null);
+  const [showMap, setShowMap] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!title.trim() || !location.trim() || !date) return setError("Заполни название, место и дату");
+    setBusy(true);
+    setError("");
+    const { error } = await supabase.from("events").insert({
+      title: title.trim(), description: description.trim(), location: location.trim(),
+      event_date: new Date(date).toISOString(), lat, lng,
+      creator_ref: currentUser.ref, creator_name: profile.name,
+    });
+    setBusy(false);
+    if (error) { setError("Не получилось создать событие"); return; }
+    onCreated();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Новая барахолка</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: Барахолка в парке Горького" className="input" /></Field>
+          <Field label="Место"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Адрес или ориентир" className="input" /></Field>
+          <Field label="Дата и время"><input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} className="input" /></Field>
+          <button type="button" onClick={() => setShowMap(!showMap)} className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#2F6B4F" }}>
+            <MapPin size={13} /> {showMap ? "Скрыть карту" : "Отметить точку на карте"}
+          </button>
+          {showMap && <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />}
+          <Field label="Описание"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Что за встреча, что можно принести продавать" className="input resize-none" /></Field>
+          {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
+          <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
+            {busy ? "Создаём..." : "Создать событие"}
+          </button>
+        </div>
+        <style>{`.input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function EventDetailModal({ event, currentUser, profile, onClose, onRequireAuth }) {
+  const [attendees, setAttendees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [bringing, setBringing] = useState("");
+  const [showJoinForm, setShowJoinForm] = useState(false);
+
+  async function load() {
+    const { data } = await supabase.from("event_attendees").select("*").eq("event_id", event.id).order("created_at", { ascending: true });
+    setAttendees(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const myAttendance = currentUser ? attendees.find((a) => a.ref === currentUser.ref) : null;
+
+  async function join() {
+    await supabase.from("event_attendees").upsert({ event_id: event.id, ref: currentUser.ref, name: profile.name, bringing: bringing.trim() });
+    setShowJoinForm(false);
+    load();
+  }
+
+  async function leave() {
+    await supabase.from("event_attendees").delete().eq("event_id", event.id).eq("ref", currentUser.ref);
+    load();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">{event.title}</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><Calendar size={13} /> {new Date(event.event_date).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</p>
+          <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><MapPin size={13} /> {event.location}</p>
+          {event.lat && event.lng && (
+            <a href={`https://www.openstreetmap.org/?mlat=${event.lat}&mlon=${event.lng}&zoom=15`} target="_blank" rel="noreferrer" className="text-xs font-bold underline" style={{ color: "#2F6B4F" }}>Открыть точку на карте</a>
+          )}
+          {event.description && <p className="text-sm">{event.description}</p>}
+
+          {myAttendance ? (
+            <button onClick={leave} className="py-3 rounded-lg font-body font-bold text-sm border-2" style={{ borderColor: "#1C1F1B22" }}>Я не приду</button>
+          ) : showJoinForm ? (
+            <div className="flex flex-col gap-2">
+              <input value={bringing} onChange={(e) => setBringing(e.target.value)} placeholder="Что принесёшь продавать? (необязательно)" className="input" />
+              <button onClick={join} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm">Подтвердить участие</button>
+            </div>
+          ) : (
+            <button onClick={() => (onRequireAuth() ? setShowJoinForm(true) : null)} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm flex items-center justify-center gap-2">
+              <Users size={16} /> Я приду
+            </button>
+          )}
+
+          <div>
+            <h3 className="font-display font-bold text-sm mb-2">Участники ({attendees.length})</h3>
+            {loading ? (
+              <p className="text-xs" style={{ color: "#8B8677" }}>Загружаем...</p>
+            ) : attendees.length === 0 ? (
+              <p className="text-xs" style={{ color: "#8B8677" }}>Пока никто не отметился</p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {attendees.map((a) => (
+                  <div key={a.ref} className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: "#fff" }}>
+                    <span className="text-xs font-bold">{a.name}</span>
+                    {a.bringing && <span className="text-[11px]" style={{ color: "#8B8677" }}>{a.bringing}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <style>{`.input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }`}</style>
+      </div>
+    </div>
+  );
+}
+
 function conversationKey(listingId, ref) {
   return `${listingId || "support"}::${ref}`;
 }
@@ -1572,7 +1894,23 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [incomingCall, setIncomingCall] = useState(false);
+  const [callMode, setCallMode] = useState(null); // 'caller' | 'callee' | null
   const scrollRef = useRef(null);
+  const signalChannelRef = useRef(null);
+
+  const roomKey = `call_${[currentUser.ref, otherRef].sort().join("_")}_${listingId || "support"}`;
+
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase.channel(roomKey, { config: { broadcast: { self: false } } });
+    channel.on("broadcast", { event: "call-request" }, () => setIncomingCall(true));
+    channel.on("broadcast", { event: "call-cancel" }, () => setIncomingCall(false));
+    channel.subscribe();
+    signalChannelRef.current = channel;
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomKey]);
 
   async function load() {
     if (!supabase) return;
@@ -1602,6 +1940,21 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
     load();
   }
 
+  function startCall() {
+    signalChannelRef.current?.send({ type: "broadcast", event: "call-request", payload: {} });
+    setCallMode("caller");
+  }
+
+  function acceptCall() {
+    setIncomingCall(false);
+    setCallMode("callee");
+  }
+
+  function declineCall() {
+    setIncomingCall(false);
+    signalChannelRef.current?.send({ type: "broadcast", event: "call-cancel", payload: {} });
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
       <div className="w-full sm:max-w-md h-[85vh] sm:h-[600px] rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden" style={{ background: "#F2EFE4" }}>
@@ -1610,11 +1963,27 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: otherRef === SUPPORT_REF ? "#FFC93C" : "#2F6B4F" }}>
             {otherRef === SUPPORT_REF ? <LifeBuoy size={14} color="#1C1F1B" /> : <User size={14} color="#fff" />}
           </div>
-          <div>
+          <div className="flex-1">
             <p className="font-body font-bold text-sm" style={{ color: "#F2EFE4" }}>{otherRef === SUPPORT_REF ? "Поддержка" : otherName}</p>
             {listingId && <p className="text-[10px]" style={{ color: "#8B8677" }}>по объявлению</p>}
           </div>
+          {otherRef !== SUPPORT_REF && (
+            <button onClick={startCall} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
+              <Video size={15} color="#fff" />
+            </button>
+          )}
         </div>
+
+        {incomingCall && (
+          <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ background: "#FFC93C" }}>
+            <span className="text-xs font-bold" style={{ color: "#1C1F1B" }}>Входящий видеозвонок</span>
+            <div className="flex gap-2">
+              <button onClick={acceptCall} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style={{ background: "#2F6B4F" }}>Принять</button>
+              <button onClick={declineCall} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#1C1F1B", color: "#fff" }}>Отклонить</button>
+            </div>
+          </div>
+        )}
+
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
           {loading ? (
             <p className="text-center text-sm py-10" style={{ color: "#8B8677" }}>Загружаем...</p>
@@ -1637,6 +2006,99 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
             <Send size={16} color="#fff" />
           </button>
         </div>
+      </div>
+
+      {callMode && (
+        <CallModal
+          roomKey={roomKey}
+          mode={callMode}
+          onClose={() => setCallMode(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CallModal({ roomKey, mode, onClose }) {
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const channelRef = useRef(null);
+  const [status, setStatus] = useState("Соединяемся...");
+
+  useEffect(() => {
+    let stream;
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    pcRef.current = pc;
+
+    const channel = supabase.channel(roomKey + "_rtc", { config: { broadcast: { self: false } } });
+    channelRef.current = channel;
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) channel.send({ type: "broadcast", event: "ice", payload: { candidate: e.candidate } });
+    };
+    pc.ontrack = (e) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+      setStatus("Соединено");
+    };
+
+    channel.on("broadcast", { event: "offer" }, async ({ payload }) => {
+      if (mode !== "callee") return;
+      await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      channel.send({ type: "broadcast", event: "answer", payload: { sdp: answer } });
+    });
+    channel.on("broadcast", { event: "answer" }, async ({ payload }) => {
+      if (mode !== "caller") return;
+      await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+    });
+    channel.on("broadcast", { event: "ice" }, async ({ payload }) => {
+      try { await pc.addIceCandidate(payload.candidate); } catch {}
+    });
+    channel.on("broadcast", { event: "call-end" }, () => { onClose(); });
+
+    channel.subscribe(async (status) => {
+      if (status !== "SUBSCRIBED") return;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        if (mode === "caller") {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          channel.send({ type: "broadcast", event: "offer", payload: { sdp: offer } });
+        }
+      } catch (err) {
+        setStatus("Нет доступа к камере/микрофону");
+      }
+    });
+
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+      pc.close();
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function hangUp() {
+    channelRef.current?.send({ type: "broadcast", event: "call-end", payload: {} });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: "#1C1F1B" }}>
+      <div className="flex-1 relative">
+        <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+        <video ref={localVideoRef} autoPlay playsInline muted className="absolute bottom-4 right-4 w-28 h-40 object-cover rounded-xl border-2" style={{ borderColor: "#FFC93C" }} />
+        <p className="absolute top-4 left-4 text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: "#1C1F1BAA", color: "#F2EFE4" }}>{status}</p>
+      </div>
+      <div className="p-5 flex justify-center" style={{ background: "#1C1F1B" }}>
+        <button onClick={hangUp} className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: "#E1543D" }}>
+          <PhoneOff size={22} color="#fff" />
+        </button>
       </div>
     </div>
   );
