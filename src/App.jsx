@@ -9,8 +9,10 @@ import {
   Shirt, Home, Gamepad2, Package, Check, Tag, ImagePlus,
   MessageCircle, LifeBuoy, User, LogOut, Send, ArrowLeft, Mail, Lock,
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
-  QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock
+  QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
+  Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase
 } from "lucide-react";
+import Papa from "papaparse";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "./supabaseClient";
 import { initTelegram, getTelegramUser, getStartParam } from "./telegram";
@@ -118,6 +120,7 @@ export default function App() {
   const [boardMode, setBoardMode] = useState("sell"); // sell | want
   const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc
   const [showCreate, setShowCreate] = useState(false);
+  const [repostSource, setRepostSource] = useState(null);
   const [editListing, setEditListing] = useState(null);
   const [showDetail, setShowDetail] = useState(null);
   const [toast, setToast] = useState("");
@@ -134,6 +137,10 @@ export default function App() {
   const [showEditProfile, setShowEditProfile] = useState(false);
 
   const [activeChat, setActiveChat] = useState(null);
+  const [deepLinkSeller, setDeepLinkSeller] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const lastMessageIdsRef = useRef(new Set());
+  const firstUnreadCheckRef = useRef(true);
   const [favoriteIds, setFavoriteIds] = useState(new Set());
   const [savedSearches, setSavedSearches] = useState([]);
 
@@ -167,6 +174,8 @@ export default function App() {
       const found = listings.find((l) => l.id === deepLinkId);
       if (found) setShowDetail(found);
     }
+    const sellerParam = params.get("seller");
+    if (sellerParam) setDeepLinkSeller(sellerParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listings.length]);
 
@@ -219,6 +228,44 @@ export default function App() {
     return listings.filter((l) => l.author_ref === currentUser.ref);
   }, [listings, currentUser]);
 
+  useEffect(() => {
+    if (!currentUser || !profile || !supabase) return;
+    const storageKey = `yarmarka_last_read_${currentUser.ref}`;
+
+    async function poll() {
+      const lastRead = localStorage.getItem(storageKey) || new Date(0).toISOString();
+      const { data } = await supabase
+        .from("messages")
+        .select("id, sender_name, content, created_at")
+        .eq("receiver_ref", currentUser.ref)
+        .gt("created_at", lastRead)
+        .order("created_at", { ascending: false });
+      const items = data || [];
+      setUnreadCount(items.length);
+      if (!firstUnreadCheckRef.current) {
+        const newOnes = items.filter((m) => !lastMessageIdsRef.current.has(m.id));
+        if (newOnes.length > 0 && tab !== "chats") {
+          flashToast(`Новое сообщение от ${newOnes[0].sender_name || "пользователя"}`);
+        }
+      }
+      firstUnreadCheckRef.current = false;
+      lastMessageIdsRef.current = new Set(items.map((m) => m.id));
+    }
+
+    poll();
+    const interval = setInterval(poll, 6000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, profile, tab]);
+
+  function openChatsTab() {
+    setTab("chats");
+    if (currentUser) {
+      localStorage.setItem(`yarmarka_last_read_${currentUser.ref}`, new Date().toISOString());
+      setUnreadCount(0);
+    }
+  }
+
   function requireAuth() {
     if (!currentUser) {
       setShowAuth(true);
@@ -249,6 +296,7 @@ export default function App() {
       return;
     }
     setShowCreate(false);
+    setRepostSource(null);
     flashToast("Объявление опубликовано");
     loadListings();
   }
@@ -315,7 +363,9 @@ export default function App() {
 
   const filtered = useMemo(() => {
     let list = listings
-      .filter((l) => (l.post_type || "sell") === boardMode)
+      .filter((l) => (l.post_type || "sell") === (boardMode === "wholesale" ? "sell" : boardMode))
+      .filter((l) => boardMode === "wholesale" ? l.wholesale_only : !l.wholesale_only)
+      .filter((l) => !(l.stock_quantity !== null && l.stock_quantity !== undefined && l.stock_quantity <= 0))
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
       .filter((l) => {
@@ -350,10 +400,10 @@ export default function App() {
       <header style={{ background: "#1C1F1B" }} className="sticky top-0 z-30 border-b-4">
         <div style={{ borderColor: "#FFC93C" }} className="border-b-4">
           <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <button onClick={() => { window.location.href = window.location.origin; }} className="flex items-center gap-2">
               <div style={{ background: "#FFC93C", color: "#1C1F1B" }} className="w-9 h-9 rounded-full flex items-center justify-center font-display font-black text-sm rotate-[-8deg]">Я</div>
               <h1 className="font-display font-bold text-xl md:text-2xl tracking-tight" style={{ color: "#F2EFE4" }}>ЯРМАРКА</h1>
-            </div>
+            </button>
             <div className="flex-1 min-w-[160px] relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Найти что угодно..." className="w-full pl-9 pr-3 py-2.5 rounded-lg outline-none font-body text-sm" style={{ background: "#F2EFE4", color: "#1C1F1B" }} />
@@ -372,6 +422,12 @@ export default function App() {
                   {label}
                 </button>
               ))}
+              {profile?.is_wholesaler && (
+                <button onClick={() => setBoardMode("wholesale")} className="px-3.5 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1"
+                  style={boardMode === "wholesale" ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
+                  <Briefcase size={11} /> B2B
+                </button>
+              )}
             </div>
             <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
               <CategorySwiper
@@ -404,12 +460,10 @@ export default function App() {
             <>
               <div className="max-w-6xl mx-auto px-4 pt-6 pb-2">
                 <div className="rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ background: "#2F6B4F" }}>
-                  <p className="font-display font-bold text-white text-base md:text-lg leading-snug">Первые {FREE_LISTINGS_LIMIT} объявлений — бесплатно навсегда</p>
-                  {currentUser && profile && (
-                    <span className="font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
-                      {myListings.length}/{FREE_LISTINGS_LIMIT} бесплатных
-                    </span>
-                  )}
+                  <p className="font-display font-bold text-white text-base md:text-lg leading-snug">Безлимит объявлений. Всегда бесплатно.</p>
+                  <span className="font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                    0 ₽ КОМИССИЯ
+                  </span>
                 </div>
               </div>
               <main className="max-w-6xl mx-auto px-4 py-6">
@@ -471,6 +525,7 @@ export default function App() {
                 onOpenListing={(l) => setShowDetail(l)}
                 onEditListing={(l) => setEditListing(l)}
                 onDeleteListing={handleDelete}
+                onRepost={(l) => { setRepostSource(l); setShowCreate(true); }}
                 onSupport={() => setActiveChat({ listingId: null, otherRef: SUPPORT_REF, otherName: "Поддержка" })}
                 onLogout={async () => { if (supabase && currentUser.source === "site") await supabase.auth.signOut(); }}
                 onEdit={() => setShowEditProfile(true)}
@@ -482,14 +537,16 @@ export default function App() {
         </>
       )}
 
-      <BottomNav tab={tab} setTab={setTab} />
+      <BottomNav tab={tab} setTab={setTab} onOpenChats={openChatsTab} unreadCount={unreadCount} />
 
       {showCreate && (
         <ListingFormModal
           mode="create"
-          onClose={() => setShowCreate(false)}
+          onClose={() => { setShowCreate(false); setRepostSource(null); }}
           onSubmit={handleCreate}
-          limitReached={currentUser && profile ? myListings.length >= FREE_LISTINGS_LIMIT : false}
+          limitReached={false}
+          isWholesaler={profile?.is_wholesaler || false}
+          initial={repostSource}
         />
       )}
 
@@ -500,6 +557,7 @@ export default function App() {
           onClose={() => setEditListing(null)}
           onSubmit={(payload) => handleUpdate(editListing.id, payload)}
           limitReached={false}
+          isWholesaler={profile?.is_wholesaler || false}
         />
       )}
 
@@ -540,11 +598,15 @@ export default function App() {
           {toast}
         </div>
       )}
+
+      {deepLinkSeller && (
+        <SellerProfileModal sellerRef={deepLinkSeller} onClose={() => setDeepLinkSeller(null)} onOpenListing={() => {}} />
+      )}
     </div>
   );
 }
 
-function BottomNav({ tab, setTab }) {
+function BottomNav({ tab, setTab, onOpenChats, unreadCount }) {
   const items = [
     { id: "feed", label: "Лента", icon: Home },
     { id: "favorites", label: "Избранное", icon: Heart },
@@ -558,8 +620,15 @@ function BottomNav({ tab, setTab }) {
         {items.map((it) => {
           const active = tab === it.id;
           return (
-            <button key={it.id} onClick={() => setTab(it.id)} className="flex-1 flex flex-col items-center gap-1 py-2.5">
-              <it.icon size={18} color={active ? "#FFC93C" : "#8B8677"} />
+            <button key={it.id} onClick={() => (it.id === "chats" ? onOpenChats() : setTab(it.id))} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
+              <div className="relative">
+                <it.icon size={18} color={active ? "#FFC93C" : "#8B8677"} />
+                {it.id === "chats" && unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: "#E1543D", color: "#fff" }}>
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[9px] font-bold font-body" style={{ color: active ? "#FFC93C" : "#8B8677" }}>{it.label}</span>
             </button>
           );
@@ -717,7 +786,7 @@ function EmptyState({ onCreate, hasAny }) {
   );
 }
 
-function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
+function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler }) {
   const isEdit = mode === "edit";
   const [postType, setPostType] = useState(initial?.post_type || "sell");
   const [title, setTitle] = useState(initial?.title || "");
@@ -737,6 +806,8 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
   const [autoDiscount, setAutoDiscount] = useState(initial?.auto_discount_enabled || false);
   const [discountPercent, setDiscountPercent] = useState(initial?.auto_discount_percent || 5);
   const [discountDays, setDiscountDays] = useState(initial?.auto_discount_days || 3);
+  const [stockQuantity, setStockQuantity] = useState(initial?.stock_quantity ?? "");
+  const [wholesaleOnly, setWholesaleOnly] = useState(initial?.wholesale_only || false);
   const [images, setImages] = useState(initial?.images || []);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -781,6 +852,8 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
       auto_discount_enabled: autoDiscount,
       auto_discount_percent: Number(discountPercent) || 5,
       auto_discount_days: Number(discountDays) || 3,
+      stock_quantity: stockQuantity === "" ? null : Math.max(0, Number(stockQuantity)),
+      wholesale_only: wholesaleOnly,
     });
     setSubmitting(false);
   }
@@ -807,6 +880,12 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
                 </button>
               ))}
             </div>
+            {isWholesaler && (
+              <label className="flex items-center gap-2 cursor-pointer p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+                <input type="checkbox" checked={wholesaleOnly} onChange={(e) => setWholesaleOnly(e.target.checked)} className="w-4 h-4" />
+                <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Только для оптовиков (B2B-раздел)</span>
+              </label>
+            )}
             <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: iPhone 13, 128GB" className="input" /></Field>
             <Field label={`Фото (до ${MAX_PHOTOS})`}>
               <div className="flex flex-wrap gap-2">
@@ -827,6 +906,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached }) {
               </div>
             </Field>
             <Field label="Цена, ₽ (0 = даром)"><input value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" inputMode="numeric" className="input font-mono" /></Field>
+            <Field label="Количество в наличии (необязательно)">
+              <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value.replace(/[^0-9]/g, ""))} placeholder="Оставь пустым, если товар один" inputMode="numeric" className="input font-mono" />
+            </Field>
             <Field label="Категория">
               <div className="grid grid-cols-2 gap-2">
                 {CATEGORIES.map((c) => (
@@ -1163,13 +1245,17 @@ function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function submit() {
     if (!supabase) return;
+    if (!sellerRef) { setError("У этого объявления нет привязанного продавца — отзыв оставить нельзя"); return; }
     setBusy(true);
+    setError("");
     const { data, error } = await supabase.from("reviews").insert({ seller_ref: sellerRef, reviewer_ref: reviewerRef, rating, comment: comment.trim() }).select().single();
     setBusy(false);
-    if (!error) onSaved(data);
+    if (error) { setError("Не получилось отправить: " + error.message); return; }
+    onSaved(data);
   }
 
   return (
@@ -1186,7 +1272,8 @@ function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
             </button>
           ))}
         </div>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder="Как прошла сделка? (необязательно)" className="input resize-none mb-4" />
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder="Как прошла сделка? (необязательно)" className="input resize-none mb-3" />
+        {error && <p className="text-xs font-bold mb-3" style={{ color: "#E1543D" }}>{error}</p>}
         <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm w-full disabled:opacity-60">
           {busy ? "Отправляем..." : "Отправить отзыв"}
         </button>
@@ -1314,6 +1401,7 @@ function SellerProfileModal({ sellerRef, onClose }) {
 function RegisterScreen({ currentUser, onDone }) {
   const [name, setName] = useState(currentUser.defaultName || "");
   const [city, setCity] = useState("Пермь");
+  const [isWholesaler, setIsWholesaler] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1322,7 +1410,7 @@ function RegisterScreen({ currentUser, onDone }) {
     if (!name.trim()) return setError("Укажи имя");
     setBusy(true);
     setError("");
-    const row = { ref: currentUser.ref, name: name.trim(), city, source: currentUser.source };
+    const row = { ref: currentUser.ref, name: name.trim(), city, source: currentUser.source, is_wholesaler: isWholesaler };
     const { data, error } = await supabase.from("profiles").insert(row).select().single();
     setBusy(false);
     if (error) {
@@ -1346,6 +1434,10 @@ function RegisterScreen({ currentUser, onDone }) {
               {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isWholesaler} onChange={(e) => setIsWholesaler(e.target.checked)} className="w-4 h-4" />
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
+          </label>
           {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
           <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
             {busy ? "Секунду..." : "Зарегистрироваться"}
@@ -1506,6 +1598,9 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   const [name, setName] = useState(profile.name || "");
   const [city, setCity] = useState(profile.city || "Пермь");
   const [avatar, setAvatar] = useState(profile.avatar_url || null);
+  const [isWholesaler, setIsWholesaler] = useState(profile.is_wholesaler || false);
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(profile.auto_reply_enabled || false);
+  const [autoReplyText, setAutoReplyText] = useState(profile.auto_reply_text || "Спасибо за сообщение! Отвечу, как только смогу.");
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1531,7 +1626,12 @@ function EditProfileModal({ profile, onClose, onSaved }) {
     if (!name.trim()) return setError("Укажи имя");
     setBusy(true);
     setError("");
-    const { data, error } = await supabase.from("profiles").update({ name: name.trim(), city, avatar_url: avatar }).eq("ref", profile.ref).select().single();
+    const { data, error } = await supabase.from("profiles").update({
+      name: name.trim(), city, avatar_url: avatar,
+      is_wholesaler: isWholesaler,
+      auto_reply_enabled: autoReplyEnabled,
+      auto_reply_text: autoReplyText.trim(),
+    }).eq("ref", profile.ref).select().single();
     setBusy(false);
     if (error) {
       setError("Не получилось сохранить, попробуй ещё раз");
@@ -1542,7 +1642,7 @@ function EditProfileModal({ profile, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Редактировать профиль</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -1563,6 +1663,22 @@ function EditProfileModal({ profile, onClose, onSaved }) {
               {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isWholesaler} onChange={(e) => setIsWholesaler(e.target.checked)} className="w-4 h-4" />
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
+          </label>
+
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <label className="flex items-center gap-2 cursor-pointer mb-2">
+              <input type="checkbox" checked={autoReplyEnabled} onChange={(e) => setAutoReplyEnabled(e.target.checked)} className="w-4 h-4" />
+              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><MessageSquareText size={13} /> Автоответ в чате</span>
+            </label>
+            {autoReplyEnabled && (
+              <textarea value={autoReplyText} onChange={(e) => setAutoReplyText(e.target.value)} rows={2} className="input resize-none" placeholder="Текст автоответа" />
+            )}
+          </div>
+
           {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
           <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
             {busy ? "Сохраняем..." : "Сохранить"}
@@ -1577,7 +1693,25 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onSupport, onLogout, onEdit }) {
+function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
+  const [showBulk, setShowBulk] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    if (!supabase || myListings.length === 0) { setStats({ views: 0, favorites: 0, messages: 0, topCategory: null }); return; }
+    (async () => {
+      const ids = myListings.map((l) => l.id);
+      const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0);
+      const { count: favCount } = await supabase.from("favorites").select("*", { count: "exact", head: true }).in("listing_id", ids);
+      const { count: msgCount } = await supabase.from("messages").select("*", { count: "exact", head: true }).eq("receiver_ref", currentUser.ref);
+      const byCat = {};
+      myListings.forEach((l) => { byCat[l.category] = (byCat[l.category] || 0) + (l.views || 0); });
+      const topCategory = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+      setStats({ views: totalViews, favorites: favCount || 0, messages: msgCount || 0, topCategory });
+    })();
+  }, [myListings, currentUser.ref]);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="rounded-2xl p-5 mb-6 flex items-center gap-4" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
@@ -1586,12 +1720,15 @@ function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySe
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-display font-bold text-base truncate">{profile.name}</p>
-          <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city} · {currentUser.source === "telegram" ? "Telegram" : "Сайт"}</p>
+          <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city} · {currentUser.source === "telegram" ? "Telegram" : "Сайт"}{profile.is_wholesaler ? " · Оптовик" : ""}</p>
         </div>
         <button onClick={onEdit} className="px-3 py-2 rounded-lg font-body font-bold text-xs border-2 flex-shrink-0" style={{ borderColor: "#1C1F1B22" }}>Изменить</button>
       </div>
 
       <div className="flex gap-2 mb-6">
+        <button onClick={() => setShowShare(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
+          <Store size={14} /> Витрина
+        </button>
         <button onClick={onSupport} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
           <LifeBuoy size={14} /> Поддержка
         </button>
@@ -1601,6 +1738,33 @@ function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySe
           </button>
         )}
       </div>
+
+      {stats && myListings.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><Eye size={11} /> Просмотров всего</p>
+            <p className="font-mono font-bold text-lg">{stats.views}</p>
+          </div>
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><Heart size={11} /> В избранном</p>
+            <p className="font-mono font-bold text-lg">{stats.favorites}</p>
+          </div>
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><MessageCircle size={11} /> Сообщений получено</p>
+            <p className="font-mono font-bold text-lg">{stats.messages}</p>
+          </div>
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><BarChart3 size={11} /> Топ-категория</p>
+            <p className="font-mono font-bold text-sm">{stats.topCategory ? catLabel(stats.topCategory) : "—"}</p>
+          </div>
+        </div>
+      )}
+
+      {profile.is_wholesaler && (
+        <button onClick={() => setShowBulk(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm text-white mb-6" style={{ background: "#1C1F1B" }}>
+          <Upload size={16} /> Массовая загрузка из CSV
+        </button>
+      )}
 
       {savedSearches.length > 0 && (
         <div className="mb-6">
@@ -1628,14 +1792,126 @@ function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySe
             <div key={l.id} className="relative">
               <ListingCard listing={l} onOpen={() => onOpenListing(l)} isFavorite={false} onToggleFavorite={() => {}} />
               <div className="absolute bottom-3 right-3 flex gap-1.5 z-10">
-                <button onClick={(e) => { e.stopPropagation(); onEditListing(l); }} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1B" }}>
+                <button onClick={(e) => { e.stopPropagation(); onRepost(l); }} title="Повторить" className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#2F6B4F" }}>
+                  <RotateCw size={13} color="#F2EFE4" />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onEditListing(l); }} title="Изменить" className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1B" }}>
                   <Pencil size={13} color="#F2EFE4" />
                 </button>
               </div>
+              {l.stock_quantity !== null && l.stock_quantity !== undefined && (
+                <span className="absolute bottom-3 left-3 z-10 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: "#1C1F1BDD", color: "#F2EFE4" }}>
+                  Остаток: {l.stock_quantity}
+                </span>
+              )}
             </div>
           ))}
         </div>
       )}
+
+      {showShare && <ShareStorefrontModal profile={profile} currentUser={currentUser} onClose={() => setShowShare(false)} />}
+      {showBulk && <BulkUploadModal currentUser={currentUser} profile={profile} onClose={() => setShowBulk(false)} />}
+    </div>
+  );
+}
+
+function ShareStorefrontModal({ profile, currentUser, onClose }) {
+  const url = `${window.location.origin}/?seller=${currentUser.ref}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-base">Витрина «{profile.name}»</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="bg-white p-4 rounded-xl inline-block mb-3">
+          <QRCodeSVG value={url} size={160} />
+        </div>
+        <p className="text-xs mb-2" style={{ color: "#8B8677" }}>Ссылка на твою витрину со всеми объявлениями:</p>
+        <p className="text-[10px] break-all p-2 rounded" style={{ background: "#fff", color: "#5B584E" }}>{url}</p>
+      </div>
+    </div>
+  );
+}
+
+function BulkUploadModal({ currentUser, profile, onClose }) {
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState([]);
+
+  function handleFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setStatus("");
+    setErrors([]);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const rows = results.data;
+        const errs = [];
+        const toInsert = [];
+        rows.forEach((row, idx) => {
+          const title = (row.title || row["название"] || "").trim();
+          if (!title) { errs.push(`Строка ${idx + 2}: нет названия`); return; }
+          const category = CATEGORIES.find((c) => c.id === (row.category || "").trim())?.id || "other";
+          toInsert.push({
+            id: `l_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
+            title,
+            price: Number(row.price || row["цена"] || 0) || 0,
+            category,
+            city: (row.city || row["город"] || profile.city || "Другой").trim(),
+            condition: (row.condition || "used").trim() === "new" ? "new" : "used",
+            description: (row.description || row["описание"] || "").trim(),
+            contact: (row.contact || row["контакт"] || "").trim() || "см. в чате",
+            stock_quantity: row.quantity ? Number(row.quantity) : null,
+            images: [],
+            barter: false,
+            delivery: DELIVERY_OPTIONS[0],
+            post_type: "sell",
+            author_ref: currentUser.ref,
+            author_name: profile.name,
+            tint: CARD_TINTS[Math.floor(Math.random() * CARD_TINTS.length)],
+            views: 0,
+          });
+        });
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from("listings").insert(toInsert);
+          if (error) errs.push("Ошибка при сохранении: " + error.message);
+        }
+        setErrors(errs);
+        setStatus(`Загружено объявлений: ${toInsert.length} из ${rows.length}`);
+        setBusy(false);
+      },
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Массовая загрузка</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <p className="text-xs" style={{ color: "#5B584E" }}>
+            CSV-файл с колонками: <b>title, price, category, city, condition, description, contact, quantity</b>.
+            Категория — одно из: {CATEGORIES.map((c) => c.id).join(", ")}. Заголовки строк можно и на русском (название, цена, город, описание, контакт).
+          </p>
+          <label className="flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm border-2 border-dashed cursor-pointer" style={{ borderColor: "#1C1F1B44" }}>
+            <Upload size={16} /> {busy ? "Обрабатываем..." : "Выбрать CSV-файл"}
+            <input type="file" accept=".csv" onChange={handleFile} className="hidden" disabled={busy} />
+          </label>
+          {status && <p className="text-sm font-bold" style={{ color: "#2F6B4F" }}>{status}</p>}
+          {errors.length > 0 && (
+            <div className="p-3 rounded-lg text-xs" style={{ background: "#F2E0DD", color: "#E1543D" }}>
+              {errors.map((e, i) => <p key={i}>{e}</p>)}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1900,6 +2176,19 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   const signalChannelRef = useRef(null);
 
   const roomKey = `call_${[currentUser.ref, otherRef].sort().join("_")}_${listingId || "support"}`;
+  const [otherProfile, setOtherProfile] = useState(null);
+  const [contextListing, setContextListing] = useState(null);
+  const autoRepliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!supabase || otherRef === SUPPORT_REF) return;
+    supabase.from("profiles").select("auto_reply_enabled, auto_reply_text").eq("ref", otherRef).maybeSingle().then(({ data }) => setOtherProfile(data));
+  }, [otherRef]);
+
+  useEffect(() => {
+    if (!supabase || !listingId) return;
+    supabase.from("listings").select("id, title, images, price").eq("id", listingId).maybeSingle().then(({ data }) => setContextListing(data));
+  }, [listingId]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1935,8 +2224,13 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   async function send() {
     if (!text.trim() || !supabase) return;
     const content = text.trim();
+    const wasEmpty = messages.length === 0;
     setText("");
     await supabase.from("messages").insert({ listing_id: listingId, sender_ref: currentUser.ref, receiver_ref: otherRef, sender_name: myName, content });
+    if (wasEmpty && !autoRepliedRef.current && otherProfile?.auto_reply_enabled && otherProfile?.auto_reply_text) {
+      autoRepliedRef.current = true;
+      await supabase.from("messages").insert({ listing_id: listingId, sender_ref: otherRef, receiver_ref: currentUser.ref, sender_name: otherName, content: otherProfile.auto_reply_text });
+    }
     load();
   }
 
@@ -1960,19 +2254,42 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
       <div className="w-full sm:max-w-md h-[85vh] sm:h-[600px] rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden" style={{ background: "#F2EFE4" }}>
         <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ background: "#1C1F1B", borderColor: "#1C1F1B" }}>
           <button onClick={onClose}><ArrowLeft size={20} color="#F2EFE4" /></button>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: otherRef === SUPPORT_REF ? "#FFC93C" : "#2F6B4F" }}>
+          <button
+            onClick={() => { if (otherRef !== SUPPORT_REF) window.location.href = `${window.location.origin}/?seller=${otherRef}`; }}
+            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: otherRef === SUPPORT_REF ? "#FFC93C" : "#2F6B4F" }}
+          >
             {otherRef === SUPPORT_REF ? <LifeBuoy size={14} color="#1C1F1B" /> : <User size={14} color="#fff" />}
-          </div>
-          <div className="flex-1">
+          </button>
+          <button
+            onClick={() => { if (otherRef !== SUPPORT_REF) window.location.href = `${window.location.origin}/?seller=${otherRef}`; }}
+            className="flex-1 text-left"
+          >
             <p className="font-body font-bold text-sm" style={{ color: "#F2EFE4" }}>{otherRef === SUPPORT_REF ? "Поддержка" : otherName}</p>
-            {listingId && <p className="text-[10px]" style={{ color: "#8B8677" }}>по объявлению</p>}
-          </div>
+            {otherRef !== SUPPORT_REF && <p className="text-[10px] underline" style={{ color: "#8B8677" }}>профиль продавца</p>}
+          </button>
           {otherRef !== SUPPORT_REF && (
             <button onClick={startCall} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
               <Video size={15} color="#fff" />
             </button>
           )}
         </div>
+
+        {contextListing && (
+          <button
+            onClick={() => { window.location.href = `${window.location.origin}/?listing=${contextListing.id}`; }}
+            className="flex items-center gap-2 px-4 py-2 border-b text-left"
+            style={{ background: "#E8E3D2", borderColor: "#1C1F1B22" }}
+          >
+            {contextListing.images?.[0] && (
+              <img src={contextListing.images[0]} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold truncate">{contextListing.title}</p>
+              <p className="text-[10px]" style={{ color: "#8B8677" }}>Диалог по этому объявлению — открыть</p>
+            </div>
+          </button>
+        )}
 
         {incomingCall && (
           <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ background: "#FFC93C" }}>
@@ -2024,7 +2341,9 @@ function CallModal({ roomKey, mode, onClose }) {
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const channelRef = useRef(null);
-  const [status, setStatus] = useState("Соединяемся...");
+  const pendingCandidatesRef = useRef([]);
+  const remoteDescSetRef = useRef(false);
+  const [status, setStatus] = useState(mode === "caller" ? "Ждём собеседника..." : "Соединяемся...");
 
   useEffect(() => {
     let stream;
@@ -2034,17 +2353,37 @@ function CallModal({ roomKey, mode, onClose }) {
     const channel = supabase.channel(roomKey + "_rtc", { config: { broadcast: { self: false } } });
     channelRef.current = channel;
 
+    async function flushPendingCandidates() {
+      const queued = pendingCandidatesRef.current;
+      pendingCandidatesRef.current = [];
+      for (const c of queued) {
+        try { await pc.addIceCandidate(c); } catch {}
+      }
+    }
+
     pc.onicecandidate = (e) => {
-      if (e.candidate) channel.send({ type: "broadcast", event: "ice", payload: { candidate: e.candidate } });
+      if (e.candidate) channel.send({ type: "broadcast", event: "ice", payload: { candidate: e.candidate.toJSON() } });
     };
     pc.ontrack = (e) => {
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-      setStatus("Соединено");
+    };
+    pc.onconnectionstatechange = () => {
+      const map = { connecting: "Соединяемся...", connected: "Соединено", disconnected: "Связь прервалась", failed: "Не удалось соединиться", closed: "Звонок завершён" };
+      setStatus(map[pc.connectionState] || pc.connectionState);
     };
 
+    channel.on("broadcast", { event: "ready" }, async () => {
+      if (mode !== "caller") return;
+      setStatus("Соединяемся...");
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      channel.send({ type: "broadcast", event: "offer", payload: { sdp: offer } });
+    });
     channel.on("broadcast", { event: "offer" }, async ({ payload }) => {
       if (mode !== "callee") return;
       await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      remoteDescSetRef.current = true;
+      await flushPendingCandidates();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       channel.send({ type: "broadcast", event: "answer", payload: { sdp: answer } });
@@ -2052,23 +2391,27 @@ function CallModal({ roomKey, mode, onClose }) {
     channel.on("broadcast", { event: "answer" }, async ({ payload }) => {
       if (mode !== "caller") return;
       await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      remoteDescSetRef.current = true;
+      await flushPendingCandidates();
     });
     channel.on("broadcast", { event: "ice" }, async ({ payload }) => {
-      try { await pc.addIceCandidate(payload.candidate); } catch {}
+      if (remoteDescSetRef.current) {
+        try { await pc.addIceCandidate(payload.candidate); } catch {}
+      } else {
+        pendingCandidatesRef.current.push(payload.candidate);
+      }
     });
     channel.on("broadcast", { event: "call-end" }, () => { onClose(); });
 
-    channel.subscribe(async (status) => {
-      if (status !== "SUBSCRIBED") return;
+    channel.subscribe(async (subStatus) => {
+      if (subStatus !== "SUBSCRIBED") return;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-        if (mode === "caller") {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          channel.send({ type: "broadcast", event: "offer", payload: { sdp: offer } });
+        if (mode === "callee") {
+          channel.send({ type: "broadcast", event: "ready", payload: {} });
         }
       } catch (err) {
         setStatus("Нет доступа к камере/микрофону");
