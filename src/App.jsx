@@ -10,7 +10,7 @@ import {
   MessageCircle, LifeBuoy, User, LogOut, Send, ArrowLeft, Mail, Lock,
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
-  Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase
+  Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2
 } from "lucide-react";
 import Papa from "papaparse";
 import { QRCodeSVG } from "qrcode.react";
@@ -84,7 +84,7 @@ const CITIES = [
   "Петропавловск-Камчатский", "Биробиджан", "Салехард", "Ханты-Мансийск", "Нарьян-Мар",
   "Другой",
 ];
-const CARD_TINTS = ["#E7EFE6", "#F2E6D8", "#EAE3F0", "#E6ECF2", "#F2E0DD", "#E9F0E0"];
+const CARD_TINTS = ["#CFEAC6", "#F5CFA0", "#DCC8F0", "#B9DCEE", "#F5C2BA", "#C7E8B0"];
 
 function catIcon(id) {
   const c = CATEGORIES.find((c) => c.id === id);
@@ -109,6 +109,19 @@ const FONT_STYLE = `
   .font-display { font-family: 'Unbounded', sans-serif; }
   .font-body { font-family: 'Manrope', sans-serif; }
   .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  @keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 60% { transform: scale(1.03); } 100% { transform: scale(1); opacity: 1; } }
+  @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,201,60,0.55); } 50% { box-shadow: 0 0 0 8px rgba(255,201,60,0); } }
+  @keyframes heartPop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  .animate-slideup { animation: slideUp 0.28s ease-out; }
+  .animate-popin { animation: popIn 0.3s ease-out; }
+  .animate-pulseglow { animation: pulseGlow 2s ease-in-out infinite; }
+  .animate-heartpop { animation: heartPop 0.35s ease; }
+  .yk-card { transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+  .yk-card:hover { transform: translateY(-4px) scale(1.015); }
+  .yk-btn { transition: transform 0.12s ease, filter 0.12s ease; }
+  .yk-btn:active { transform: scale(0.94); }
 `;
 
 export default function App() {
@@ -139,6 +152,8 @@ export default function App() {
   const [activeChat, setActiveChat] = useState(null);
   const [deepLinkSeller, setDeepLinkSeller] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [streakReward, setStreakReward] = useState(null);
   const lastMessageIdsRef = useRef(new Set());
   const firstUnreadCheckRef = useRef(true);
   const [favoriteIds, setFavoriteIds] = useState(new Set());
@@ -266,6 +281,32 @@ export default function App() {
     }
   }
 
+  const STREAK_MILESTONES = [3, 7, 14, 30];
+
+  useEffect(() => {
+    if (!currentUser || !profile || !supabase) return;
+    const key = `yarmarka_streak_${currentUser.ref}`;
+    const today = new Date().toDateString();
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    let nextStreak = 1;
+    if (saved) {
+      if (saved.lastDate === today) { setStreak(saved.streak); return; }
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      nextStreak = saved.lastDate === yesterday ? saved.streak + 1 : 1;
+    }
+    localStorage.setItem(key, JSON.stringify({ lastDate: today, streak: nextStreak }));
+    setStreak(nextStreak);
+    if (STREAK_MILESTONES.includes(nextStreak)) {
+      const current = profile.vip_until && new Date(profile.vip_until) > new Date() ? new Date(profile.vip_until) : new Date();
+      const newVipUntil = new Date(current.getTime() + 3 * 86400000).toISOString();
+      supabase.from("profiles").update({ vip_until: newVipUntil }).eq("ref", currentUser.ref).select().single().then(({ data }) => {
+        if (data) setProfile(data);
+        setStreakReward(nextStreak);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, profile?.ref]);
+
   function requireAuth() {
     if (!currentUser) {
       setShowAuth(true);
@@ -288,6 +329,7 @@ export default function App() {
       telegram_username: tgUser?.username || null,
       author_ref: currentUser.ref,
       author_name: profile.name,
+      author_vip: !!(profile.vip_until && new Date(profile.vip_until) > new Date()),
       views: 0,
     };
     const { error } = await supabase.from("listings").insert(row);
@@ -363,8 +405,8 @@ export default function App() {
 
   const filtered = useMemo(() => {
     let list = listings
-      .filter((l) => (l.post_type || "sell") === (boardMode === "wholesale" ? "sell" : boardMode))
-      .filter((l) => boardMode === "wholesale" ? l.wholesale_only : !l.wholesale_only)
+      .filter((l) => (l.post_type || "sell") === boardMode)
+      .filter((l) => !l.wholesale_only)
       .filter((l) => !(l.stock_quantity !== null && l.stock_quantity !== undefined && l.stock_quantity <= 0))
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
@@ -408,7 +450,7 @@ export default function App() {
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Найти что угодно..." className="w-full pl-9 pr-3 py-2.5 rounded-lg outline-none font-body text-sm" style={{ background: "#F2EFE4", color: "#1C1F1B" }} />
             </div>
-            <button onClick={() => (requireAuth() ? setShowCreate(true) : null)} style={{ background: "#2F6B4F" }} className="flex items-center gap-1.5 text-white px-4 py-2.5 rounded-lg font-body font-bold text-sm hover:brightness-110 transition">
+            <button onClick={() => (requireAuth() ? setShowCreate(true) : null)} style={{ background: "#2F6B4F" }} className="yk-btn flex items-center gap-1.5 text-white px-4 py-2.5 rounded-lg font-body font-bold text-sm hover:brightness-110">
               <Plus size={16} strokeWidth={3} /> Разместить
             </button>
           </div>
@@ -417,17 +459,11 @@ export default function App() {
           <>
             <div className="max-w-6xl mx-auto px-4 pt-2 flex gap-2">
               {[["sell", "Продают"], ["want", "Ищут"]].map(([val, label]) => (
-                <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border"
+                <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border transition active:scale-95"
                   style={boardMode === val ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
                   {label}
                 </button>
               ))}
-              {profile?.is_wholesaler && (
-                <button onClick={() => setBoardMode("wholesale")} className="px-3.5 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1"
-                  style={boardMode === "wholesale" ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
-                  <Briefcase size={11} /> B2B
-                </button>
-              )}
             </div>
             <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
               <CategorySwiper
@@ -459,9 +495,9 @@ export default function App() {
           {tab === "feed" && (
             <>
               <div className="max-w-6xl mx-auto px-4 pt-6 pb-2">
-                <div className="rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ background: "#2F6B4F" }}>
+                <div className="rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ background: "linear-gradient(135deg, #2F6B4F, #1E5A3E)" }}>
                   <p className="font-display font-bold text-white text-base md:text-lg leading-snug">Безлимит объявлений. Всегда бесплатно.</p>
-                  <span className="font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                  <span className="animate-pulseglow font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
                     0 ₽ КОМИССИЯ
                   </span>
                 </div>
@@ -501,6 +537,10 @@ export default function App() {
             )
           )}
 
+          {tab === "b2b" && profile?.is_wholesaler && (
+            <B2BTab listings={listings} onOpenListing={(l) => setShowDetail(l)} onOpenCreate={() => { requireAuth() ? setShowCreate(true) : null; }} onOpenBulk={() => setTab("profile")} />
+          )}
+
           {tab === "events" && (
             <EventsTab currentUser={currentUser} profile={profile} onRequireAuth={requireAuth} />
           )}
@@ -519,6 +559,7 @@ export default function App() {
                 profile={profile}
                 currentUser={currentUser}
                 myListings={myListings}
+                streak={streak}
                 savedSearches={savedSearches}
                 onApplySearch={applySavedSearch}
                 onDeleteSearch={deleteSavedSearch}
@@ -537,7 +578,7 @@ export default function App() {
         </>
       )}
 
-      <BottomNav tab={tab} setTab={setTab} onOpenChats={openChatsTab} unreadCount={unreadCount} />
+      <BottomNav tab={tab} setTab={setTab} onOpenChats={openChatsTab} unreadCount={unreadCount} isWholesaler={profile?.is_wholesaler || false} />
 
       {showCreate && (
         <ListingFormModal
@@ -579,6 +620,10 @@ export default function App() {
             setShowDetail(null);
           }}
           requireAuth={requireAuth}
+          similarListings={listings.filter((l) => l.category === showDetail.category && l.id !== showDetail.id && (l.post_type || "sell") === (showDetail.post_type || "sell")).slice(0, 6)}
+          favoriteIds={favoriteIds}
+          onToggleFavoriteOther={toggleFavorite}
+          onOpenSimilar={(l) => setShowDetail(l)}
         />
       )}
 
@@ -593,7 +638,7 @@ export default function App() {
       )}
 
       {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-full font-body font-semibold text-sm shadow-lg z-50 flex items-center gap-2" style={{ background: "#1C1F1B", color: "#F2EFE4" }}>
+        <div className="animate-popin fixed bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-full font-body font-semibold text-sm shadow-lg z-50 flex items-center gap-2" style={{ background: "#1C1F1B", color: "#F2EFE4" }}>
           <Check size={16} style={{ color: "#FFC93C" }} />
           {toast}
         </div>
@@ -602,14 +647,28 @@ export default function App() {
       {deepLinkSeller && (
         <SellerProfileModal sellerRef={deepLinkSeller} onClose={() => setDeepLinkSeller(null)} onOpenListing={() => {}} />
       )}
+
+      {streakReward && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "#1C1F1BCC" }}>
+          <div className="animate-popin rounded-2xl p-6 text-center max-w-xs" style={{ background: "#F2EFE4" }}>
+            <div className="w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "#FFC93C" }}>
+              <Flame size={30} color="#1C1F1B" />
+            </div>
+            <p className="font-display font-bold text-lg mb-1">{streakReward} дней подряд!</p>
+            <p className="text-sm mb-4" style={{ color: "#5B584E" }}>Держишь серию заходов — держи награду: VIP-статус на 3 дня для всех твоих новых объявлений.</p>
+            <button onClick={() => setStreakReward(null)} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm w-full">Класс!</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function BottomNav({ tab, setTab, onOpenChats, unreadCount }) {
+function BottomNav({ tab, setTab, onOpenChats, unreadCount, isWholesaler }) {
   const items = [
     { id: "feed", label: "Лента", icon: Home },
     { id: "favorites", label: "Избранное", icon: Heart },
+    ...(isWholesaler ? [{ id: "b2b", label: "B2B", icon: Briefcase }] : []),
     { id: "events", label: "События", icon: Calendar },
     { id: "chats", label: "Сообщения", icon: MessageCircle },
     { id: "profile", label: "Профиль", icon: User },
@@ -727,14 +786,15 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
   const isWant = listing.post_type === "want";
   const isReserved = listing.reserved_until && new Date(listing.reserved_until) > new Date();
   const cover = listing.images && listing.images.length > 0 ? listing.images[0] : null;
+  const [popHeart, setPopHeart] = useState(false);
   return (
-    <div onClick={onOpen} className="text-left rounded-2xl overflow-hidden border-2 relative transition hover:-translate-y-1 hover:shadow-xl cursor-pointer" style={{ background: listing.tint || "#EAE3F0", borderColor: "#1C1F1B22" }}>
+    <div onClick={onOpen} className="yk-card text-left rounded-2xl overflow-hidden border-2 relative hover:shadow-2xl cursor-pointer" style={{ background: listing.tint || "#EAE3F0", borderColor: "#1C1F1B22" }}>
       <button
-        onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-        className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center z-10"
+        onClick={(e) => { e.stopPropagation(); setPopHeart(true); setTimeout(() => setPopHeart(false), 350); onToggleFavorite(); }}
+        className="yk-btn absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center z-10"
         style={{ background: "#1C1F1BAA" }}
       >
-        <Heart size={14} color={isFavorite ? "#E1543D" : "#F2EFE4"} fill={isFavorite ? "#E1543D" : "none"} />
+        <Heart size={14} color={isFavorite ? "#E1543D" : "#F2EFE4"} fill={isFavorite ? "#E1543D" : "none"} className={popHeart ? "animate-heartpop" : ""} />
       </button>
       {isWant ? (
         <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#C7B8E8", color: "#1C1F1B" }}>ИЩУ</div>
@@ -746,8 +806,20 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
           <Timer size={10} /> Придержано
         </div>
       )}
+      {listing.author_vip && (
+        <div className="absolute top-3 left-3 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "#FFC93C" }}>
+          <Crown size={12} color="#1C1F1B" fill="#1C1F1B" />
+        </div>
+      )}
       {cover ? (
-        <div className="w-full aspect-[4/3] overflow-hidden"><img src={cover} alt={listing.title} className="w-full h-full object-cover" /></div>
+        <div className="w-full aspect-[4/3] overflow-hidden relative">
+          <img src={cover} alt={listing.title} className="w-full h-full object-cover" loading="lazy" />
+          {listing.images.length > 1 && (
+            <span className="absolute bottom-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5" style={{ background: "#1C1F1BAA", color: "#F2EFE4" }}>
+              <ImagePlus size={9} /> {listing.images.length}
+            </span>
+          )}
+        </div>
       ) : null}
       <div className={cover ? "p-4" : "p-4 pt-8"}>
         {!cover && (
@@ -1008,7 +1080,7 @@ function StarRow({ value, size = 14 }) {
   );
 }
 
-function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavorite, onClose, onEdit, onDelete, onMessageSeller, requireAuth }) {
+function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavorite, onClose, onEdit, onDelete, onMessageSeller, requireAuth, similarListings, favoriteIds, onToggleFavoriteOther, onOpenSimilar }) {
   const Icon = catIcon(listing.category);
   const isFree = Number(listing.price) === 0;
   const images = listing.images || [];
@@ -1018,6 +1090,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
   const [showReport, setShowReport] = useState(false);
   const [showSeller, setShowSeller] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const viewedRef = useRef(false);
 
@@ -1045,9 +1118,18 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
   const avgRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
+  async function share() {
+    const url = `${window.location.origin}/?listing=${listing.id}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: listing.title, url }); } catch {}
+    } else {
+      await navigator.clipboard.writeText(url);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4" }}>
         {images.length > 0 ? (
           <div className="relative">
             <button onClick={onClose} className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1BCC" }}>
@@ -1056,11 +1138,24 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
             <button onClick={onToggleFavorite} className="absolute top-4 right-14 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1BCC" }}>
               <Heart size={16} color={isFavorite ? "#E1543D" : "#F2EFE4"} fill={isFavorite ? "#E1543D" : "none"} />
             </button>
-            <div className="w-full aspect-[4/3]" style={{ background: listing.tint || "#EAE3F0" }}>
-              <img src={images[activeImg]} alt={listing.title} className="w-full h-full object-cover" />
-            </div>
+            <button onClick={share} className="absolute top-4 right-24 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1BCC" }}>
+              <Share2 size={15} color="#F2EFE4" />
+            </button>
             {images.length > 1 && (
-              <div className="flex gap-1.5 px-4 py-2.5" style={{ background: listing.tint || "#EAE3F0" }}>
+              <span className="absolute top-4 left-4 z-10 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#1C1F1BCC", color: "#F2EFE4" }}>
+                {activeImg + 1}/{images.length}
+              </span>
+            )}
+            <SwipeGallery images={images} activeImg={activeImg} setActiveImg={setActiveImg} tint={listing.tint} onOpenFullscreen={() => setShowFullscreen(true)} />
+            {images.length > 1 && (
+              <div className="flex justify-center gap-1.5 py-2" style={{ background: listing.tint || "#EAE3F0" }}>
+                {images.map((_, idx) => (
+                  <button key={idx} onClick={() => setActiveImg(idx)} className="rounded-full transition-all" style={{ width: idx === activeImg ? 16 : 6, height: 6, background: idx === activeImg ? "#1C1F1B" : "#1C1F1B55" }} />
+                ))}
+              </div>
+            )}
+            {images.length > 1 && (
+              <div className="flex gap-1.5 px-4 pb-2.5" style={{ background: listing.tint || "#EAE3F0" }}>
                 {images.map((src, idx) => (
                   <button key={idx} onClick={() => setActiveImg(idx)} className="w-11 h-11 rounded-lg overflow-hidden border-2 flex-shrink-0" style={{ borderColor: idx === activeImg ? "#2F6B4F" : "transparent" }}>
                     <img src={src} alt="" className="w-full h-full object-cover" />
@@ -1077,6 +1172,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
           <div style={{ background: listing.tint || "#EAE3F0" }} className="p-6 relative">
             <button onClick={onClose} className="absolute top-4 right-4"><X size={20} /></button>
             <button onClick={onToggleFavorite} className="absolute top-4 right-14"><Heart size={20} color={isFavorite ? "#E1543D" : "#1C1F1B"} fill={isFavorite ? "#E1543D" : "none"} /></button>
+            <button onClick={share} className="absolute top-4 right-24"><Share2 size={18} color="#1C1F1B" /></button>
             <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3" style={{ background: "#1C1F1B" }}>
               <Icon size={22} color="#F2EFE4" />
             </div>
@@ -1195,6 +1291,19 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
             </div>
           )}
 
+          {similarListings && similarListings.length > 0 && (
+            <div>
+              <h3 className="font-display font-bold text-sm mb-2">Похожие объявления</h3>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {similarListings.map((l) => (
+                  <div key={l.id} className="w-36 flex-shrink-0">
+                    <ListingCard listing={l} onOpen={() => onOpenSimilar(l)} isFavorite={favoriteIds?.has(l.id)} onToggleFavorite={() => onToggleFavoriteOther(l.id)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <p className="text-[11px] text-center" style={{ color: "#8B8677" }}>Опубликовано {timeAgo(listing.created_at)}</p>
         </div>
       </div>
@@ -1215,6 +1324,103 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
       )}
       {showQR && (
         <QRModal listing={listing} onClose={() => setShowQR(false)} />
+      )}
+      {showFullscreen && (
+        <FullscreenGallery images={images} startIndex={activeImg} onClose={() => setShowFullscreen(false)} />
+      )}
+    </div>
+  );
+}
+
+function SwipeGallery({ images, activeImg, setActiveImg, tint, onOpenFullscreen }) {
+  const scrollRef = useRef(null);
+  const isScrollingRef = useRef(false);
+
+  useEffect(() => {
+    if (isScrollingRef.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ left: activeImg * el.clientWidth, behavior: "smooth" });
+  }, [activeImg]);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    isScrollingRef.current = true;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    setActiveImg(idx);
+    clearTimeout(handleScroll._t);
+    handleScroll._t = setTimeout(() => { isScrollingRef.current = false; }, 150);
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="w-full aspect-[4/3] flex overflow-x-auto"
+      style={{ background: tint || "#EAE3F0", scrollSnapType: "x mandatory" }}
+    >
+      {images.map((src, idx) => (
+        <div key={idx} className="w-full h-full flex-shrink-0" style={{ scrollSnapAlign: "start" }} onClick={onOpenFullscreen}>
+          <img src={src} alt="" className="w-full h-full object-cover" draggable={false} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FullscreenGallery({ images, startIndex, onClose }) {
+  const [idx, setIdx] = useState(startIndex);
+  const scrollRef = useRef(null);
+  const isScrollingRef = useRef(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ left: startIndex * el.clientWidth });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    isScrollingRef.current = true;
+    setIdx(Math.round(el.scrollLeft / el.clientWidth));
+    clearTimeout(handleScroll._t);
+    handleScroll._t = setTimeout(() => { isScrollingRef.current = false; }, 150);
+  }
+
+  function go(delta) {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: delta * el.clientWidth, behavior: "smooth" });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col" style={{ background: "#000" }}>
+      <div className="flex items-center justify-between px-4 py-3">
+        <span className="text-xs font-bold text-white">{idx + 1} / {images.length}</span>
+        <button onClick={onClose}><X size={24} color="#fff" /></button>
+      </div>
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 flex overflow-x-auto" style={{ scrollSnapType: "x mandatory" }}>
+        {images.map((src, i) => (
+          <div key={i} className="w-full h-full flex-shrink-0 flex items-center justify-center" style={{ scrollSnapAlign: "start" }}>
+            <img src={src} alt="" className="max-w-full max-h-full object-contain" draggable={false} />
+          </div>
+        ))}
+      </div>
+      {images.length > 1 && (
+        <>
+          <button onClick={() => go(-1)} className="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full items-center justify-center" style={{ background: "#ffffff33" }}>
+            <ChevronLeft size={20} color="#fff" />
+          </button>
+          <button onClick={() => go(1)} className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full items-center justify-center" style={{ background: "#ffffff33" }}>
+            <ChevronRight size={20} color="#fff" />
+          </button>
+          <div className="flex justify-center gap-1.5 py-3">
+            {images.map((_, i) => (
+              <div key={i} className="rounded-full" style={{ width: i === idx ? 16 : 6, height: 6, background: i === idx ? "#FFC93C" : "#ffffff55" }} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1693,10 +1899,11 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
+function ProfileTab({ profile, currentUser, myListings, streak, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
   const [showBulk, setShowBulk] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [stats, setStats] = useState(null);
+  const isVip = profile.vip_until && new Date(profile.vip_until) > new Date();
 
   useEffect(() => {
     if (!supabase || myListings.length === 0) { setStats({ views: 0, favorites: 0, messages: 0, topCategory: null }); return; }
@@ -1719,8 +1926,15 @@ function ProfileTab({ profile, currentUser, myListings, savedSearches, onApplySe
           {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className="font-display font-bold text-xl text-white">{profile.name.slice(0, 1).toUpperCase()}</span>}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-display font-bold text-base truncate">{profile.name}</p>
+          <p className="font-display font-bold text-base truncate flex items-center gap-1.5">
+            {profile.name}
+            {isVip && <Crown size={14} color="#FFC93C" fill="#FFC93C" />}
+          </p>
           <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city} · {currentUser.source === "telegram" ? "Telegram" : "Сайт"}{profile.is_wholesaler ? " · Оптовик" : ""}</p>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0 px-2.5 py-1.5 rounded-full" style={{ background: "#FFC93C" }}>
+          <Flame size={13} color="#1C1F1B" />
+          <span className="text-xs font-bold" style={{ color: "#1C1F1B" }}>{streak}</span>
         </div>
         <button onClick={onEdit} className="px-3 py-2 rounded-lg font-body font-bold text-xs border-2 flex-shrink-0" style={{ borderColor: "#1C1F1B22" }}>Изменить</button>
       </div>
@@ -1912,6 +2126,56 @@ function BulkUploadModal({ currentUser, profile, onClose }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function B2BTab({ listings, onOpenListing, onOpenCreate, onOpenBulk }) {
+  const [search, setSearch] = useState("");
+  const wholesale = useMemo(() => {
+    return listings
+      .filter((l) => l.wholesale_only)
+      .filter((l) => {
+        const q = search.trim().toLowerCase();
+        if (!q) return true;
+        return l.title.toLowerCase().includes(q) || (l.description || "").toLowerCase().includes(q);
+      });
+  }, [listings, search]);
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="rounded-2xl px-5 py-4 mb-5 flex items-center justify-between flex-wrap gap-3" style={{ background: "#1C1F1B" }}>
+        <div className="flex items-center gap-2">
+          <Briefcase size={20} color="#FFC93C" />
+          <div>
+            <p className="font-display font-bold text-white text-base">B2B-раздел</p>
+            <p className="text-[11px]" style={{ color: "#8B8677" }}>Только для оптовиков и перекупов</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onOpenCreate} className="px-3 py-2 rounded-lg font-body font-bold text-xs text-white flex items-center gap-1" style={{ background: "#2F6B4F" }}>
+            <Plus size={13} /> Позиция
+          </button>
+          <button onClick={onOpenBulk} className="px-3 py-2 rounded-lg font-body font-bold text-xs" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+            <Upload size={13} className="inline mr-1" /> CSV
+          </button>
+        </div>
+      </div>
+
+      <div className="relative mb-5">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по опту..." className="w-full pl-9 pr-3 py-2.5 rounded-lg text-sm border-2" style={{ borderColor: "#1C1F1B22" }} />
+      </div>
+
+      {wholesale.length === 0 ? (
+        <p className="text-center py-16 text-sm" style={{ color: "#8B8677" }}>Пока нет оптовых позиций — отметь объявление флажком «Только для оптовиков», когда создаёшь его</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {wholesale.map((l) => (
+            <ListingCard key={l.id} listing={l} onOpen={() => onOpenListing(l)} isFavorite={false} onToggleFavorite={() => {}} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
