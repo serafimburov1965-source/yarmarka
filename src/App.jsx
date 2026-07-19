@@ -10,8 +10,10 @@ import {
   MessageCircle, LifeBuoy, User, LogOut, Send, ArrowLeft, Mail, Lock,
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
-  Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2
+  Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2,
+  Moon, Sun, Award, Sparkles
 } from "lucide-react";
+import confetti from "canvas-confetti";
 import Papa from "papaparse";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "./supabaseClient";
@@ -127,10 +129,12 @@ const FONT_STYLE = `
   .yk-btn { transition: transform 0.12s ease, filter 0.12s ease; }
   .yk-btn:active { transform: scale(0.94); }
   .yk-bg {
-    background-color: #F2EFE4;
-    background-image: radial-gradient(#1C1F1B14 1.4px, transparent 1.4px);
+    background-color: var(--yk-bg, #F2EFE4);
+    background-image: radial-gradient(var(--yk-dot, #1C1F1B14) 1.4px, transparent 1.4px);
     background-size: 22px 22px;
+    color: var(--yk-text, #1C1F1B);
   }
+  .dark { --yk-bg: #15181A; --yk-dot: #F2EFE422; --yk-text: #F2EFE4; }
   .yk-header-gradient { background: linear-gradient(120deg, #1C1F1B 0%, #21362B 55%, #1C1F1B 100%); }
   .yk-gradient-green { background: linear-gradient(135deg, #34825C, #1E5A3E); }
   .yk-gradient-yellow { background: linear-gradient(135deg, #FFD966, #FFC93C); }
@@ -173,6 +177,8 @@ export default function App() {
   const [activeChat, setActiveChat] = useState(null);
   const [deepLinkSeller, setDeepLinkSeller] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("yarmarka_dark") === "1");
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("yarmarka_onboarded"));
   const [streak, setStreak] = useState(0);
   const [streakReward, setStreakReward] = useState(null);
   const lastMessageIdsRef = useRef(new Set());
@@ -328,6 +334,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, profile?.ref]);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("yarmarka_dark", darkMode ? "1" : "0");
+  }, [darkMode]);
+
   function requireAuth() {
     if (!currentUser) {
       setShowAuth(true);
@@ -361,6 +372,7 @@ export default function App() {
     setShowCreate(false);
     setRepostSource(null);
     flashToast("Объявление опубликовано");
+    confetti({ particleCount: 100, spread: 75, origin: { y: 0.6 }, colors: ["#FFC93C", "#2F6B4F", "#E1543D"] });
     loadListings();
   }
 
@@ -457,7 +469,7 @@ export default function App() {
   const needsRegistration = currentUser && profileChecked && !profile;
 
   return (
-    <div className="yk-bg min-h-screen font-body pb-20" style={{ color: "#1C1F1B" }}>
+    <div className="yk-bg min-h-screen font-body pb-20">
       <style>{FONT_STYLE}</style>
 
       <header className="yk-header-gradient sticky top-0 z-30 border-b-4">
@@ -581,6 +593,8 @@ export default function App() {
                 currentUser={currentUser}
                 myListings={myListings}
                 streak={streak}
+                darkMode={darkMode}
+                setDarkMode={setDarkMode}
                 savedSearches={savedSearches}
                 onApplySearch={applySavedSearch}
                 onDeleteSearch={deleteSavedSearch}
@@ -669,6 +683,10 @@ export default function App() {
         <SellerProfileModal sellerRef={deepLinkSeller} onClose={() => setDeepLinkSeller(null)} onOpenListing={() => {}} />
       )}
 
+      {showWelcome && (
+        <WelcomeTour onDone={() => { localStorage.setItem("yarmarka_onboarded", "1"); setShowWelcome(false); }} />
+      )}
+
       {streakReward && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "#1C1F1BCC" }}>
           <div className="animate-popin rounded-2xl p-6 text-center max-w-xs" style={{ background: "#F2EFE4" }}>
@@ -681,6 +699,47 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function WelcomeTour({ onDone }) {
+  const [step, setStep] = useState(0);
+  const slides = [
+    { icon: Home, title: "Добро пожаловать в Ярмарку", text: "Размещай объявления бесплатно и без ограничений — навсегда." },
+    { icon: MessageCircle, title: "Пиши прямо в приложении", text: "Чат с продавцом, видеозвонок и поддержка — всё в одном месте." },
+    { icon: Flame, title: "Заходи каждый день", text: "За серию заходов подряд — VIP-статус в подарок для твоих объявлений." },
+    { icon: Heart, title: "Готов начать?", text: "Сохраняй понравившееся в избранное и находи то, что ищешь." },
+  ];
+  const s = slides[step];
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: "#1C1F1BE6" }}>
+      <div className="animate-popin w-full max-w-xs rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+        <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#FFC93C" }}>
+          <s.icon size={28} color="#1C1F1B" />
+        </div>
+        <p className="font-display font-bold text-lg mb-2">{s.title}</p>
+        <p className="text-sm mb-5" style={{ color: "#5B584E" }}>{s.text}</p>
+        <div className="flex justify-center gap-1.5 mb-5">
+          {slides.map((_, i) => (
+            <div key={i} className="rounded-full transition-all" style={{ width: i === step ? 18 : 6, height: 6, background: i === step ? "#2F6B4F" : "#1C1F1B33" }} />
+          ))}
+        </div>
+        <div className="flex gap-2">
+          {step > 0 && (
+            <button onClick={() => setStep(step - 1)} className="flex-1 py-2.5 rounded-lg font-body font-bold text-sm border-2" style={{ borderColor: "#1C1F1B22" }}>Назад</button>
+          )}
+          <button
+            onClick={() => (step < slides.length - 1 ? setStep(step + 1) : onDone())}
+            style={{ background: "#2F6B4F" }}
+            className="flex-1 text-white py-2.5 rounded-lg font-body font-bold text-sm"
+          >
+            {step < slides.length - 1 ? "Далее" : "Начать"}
+          </button>
+        </div>
+        <button onClick={onDone} className="text-xs font-bold mt-3" style={{ color: "#8B8677" }}>Пропустить</button>
+      </div>
     </div>
   );
 }
@@ -1921,11 +1980,36 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, streak, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
+function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
   const [showBulk, setShowBulk] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [stats, setStats] = useState(null);
+  const [reviewCount, setReviewCount] = useState(0);
   const isVip = profile.vip_until && new Date(profile.vip_until) > new Date();
+
+  const completeness = useMemo(() => {
+    let pct = 0;
+    if (profile.name) pct += 20;
+    if (profile.city) pct += 20;
+    if (profile.avatar_url) pct += 20;
+    if (profile.auto_reply_text) pct += 20;
+    if (myListings.length > 0) pct += 20;
+    return pct;
+  }, [profile, myListings]);
+
+  const achievements = useMemo(() => [
+    { id: "first", label: "Первое объявление", earned: myListings.length >= 1, icon: Tag },
+    { id: "five", label: "5 объявлений", earned: myListings.length >= 5, icon: Store },
+    { id: "reviews", label: "10 отзывов", earned: reviewCount >= 10, icon: Star },
+    { id: "wholesaler", label: "Оптовик", earned: !!profile.is_wholesaler, icon: Briefcase },
+    { id: "streak", label: "Неделя подряд", earned: streak >= 7, icon: Flame },
+    { id: "complete", label: "Профиль заполнен", earned: completeness === 100, icon: Award },
+  ], [myListings, reviewCount, profile.is_wholesaler, streak, completeness]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("reviews").select("*", { count: "exact", head: true }).eq("seller_ref", currentUser.ref).then(({ count }) => setReviewCount(count || 0));
+  }, [currentUser.ref]);
 
   useEffect(() => {
     if (!supabase || myListings.length === 0) { setStats({ views: 0, favorites: 0, messages: 0, topCategory: null }); return; }
@@ -2001,6 +2085,37 @@ function ProfileTab({ profile, currentUser, myListings, streak, savedSearches, o
           <Upload size={16} /> Массовая загрузка из CSV
         </button>
       )}
+
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-xs font-bold" style={{ color: "#5B584E" }}>Профиль заполнен на {completeness}%</p>
+          <Sparkles size={13} style={{ color: "#FFC93C" }} />
+        </div>
+        <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "#1C1F1B22" }}>
+          <div className="h-full rounded-full transition-all" style={{ width: `${completeness}%`, background: "linear-gradient(90deg, #FFC93C, #2F6B4F)" }} />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-lg mb-6" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+        <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#5B584E" }}>
+          {darkMode ? <Moon size={14} /> : <Sun size={14} />} Тёмная тема
+        </span>
+        <button onClick={() => setDarkMode(!darkMode)} className="w-11 h-6 rounded-full relative transition-colors" style={{ background: darkMode ? "#2F6B4F" : "#1C1F1B33" }}>
+          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: darkMode ? 22 : 2 }} />
+        </button>
+      </div>
+
+      <div className="mb-6">
+        <h3 className="font-display font-bold text-sm mb-3">Достижения</h3>
+        <div className="grid grid-cols-3 gap-2">
+          {achievements.map((a) => (
+            <div key={a.id} className="flex flex-col items-center gap-1.5 p-3 rounded-lg text-center" style={{ background: a.earned ? "#FFC93C" : "#fff", border: "2px solid #1C1F1B22", opacity: a.earned ? 1 : 0.5 }}>
+              <a.icon size={20} color="#1C1F1B" />
+              <span className="text-[10px] font-bold leading-tight">{a.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {savedSearches.length > 0 && (
         <div className="mb-6">
