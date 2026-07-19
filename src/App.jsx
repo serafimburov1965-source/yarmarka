@@ -55,13 +55,13 @@ function compressImage(file, maxDim = 900, quality = 0.65) {
 }
 
 const CATEGORIES = [
-  { id: "electronics", label: "Электроника", icon: Smartphone },
-  { id: "tools", label: "Инструменты", icon: Wrench },
-  { id: "transport", label: "Транспорт", icon: Car },
-  { id: "clothes", label: "Одежда", icon: Shirt },
-  { id: "home", label: "Для дома", icon: Home },
-  { id: "hobby", label: "Хобби", icon: Gamepad2 },
-  { id: "other", label: "Разное", icon: Package },
+  { id: "electronics", label: "Электроника", icon: Smartphone, color: "#4EA5D9" },
+  { id: "tools", label: "Инструменты", icon: Wrench, color: "#E8935C" },
+  { id: "transport", label: "Транспорт", icon: Car, color: "#5B9BD5" },
+  { id: "clothes", label: "Одежда", icon: Shirt, color: "#D97BB5" },
+  { id: "home", label: "Для дома", icon: Home, color: "#7FB069" },
+  { id: "hobby", label: "Хобби", icon: Gamepad2, color: "#B57FE0" },
+  { id: "other", label: "Разное", icon: Package, color: "#9AA5B1" },
 ];
 
 const CITIES = [
@@ -89,6 +89,10 @@ const CARD_TINTS = ["#CFEAC6", "#F5CFA0", "#DCC8F0", "#B9DCEE", "#F5C2BA", "#C7E
 function catIcon(id) {
   const c = CATEGORIES.find((c) => c.id === id);
   return c ? c.icon : Package;
+}
+function catIconColor(id) {
+  const c = CATEGORIES.find((c) => c.id === id);
+  return c ? c.color : "#9AA5B1";
 }
 function catLabel(id) {
   const c = CATEGORIES.find((c) => c.id === id);
@@ -119,9 +123,26 @@ const FONT_STYLE = `
   .animate-pulseglow { animation: pulseGlow 2s ease-in-out infinite; }
   .animate-heartpop { animation: heartPop 0.35s ease; }
   .yk-card { transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
-  .yk-card:hover { transform: translateY(-4px) scale(1.015); }
+  .yk-card:hover { transform: translateY(-4px) scale(1.015); box-shadow: 0 12px 28px -8px rgba(28,31,27,0.35); }
   .yk-btn { transition: transform 0.12s ease, filter 0.12s ease; }
   .yk-btn:active { transform: scale(0.94); }
+  .yk-bg {
+    background-color: #F2EFE4;
+    background-image: radial-gradient(#1C1F1B14 1.4px, transparent 1.4px);
+    background-size: 22px 22px;
+  }
+  .yk-header-gradient { background: linear-gradient(120deg, #1C1F1B 0%, #21362B 55%, #1C1F1B 100%); }
+  .yk-gradient-green { background: linear-gradient(135deg, #34825C, #1E5A3E); }
+  .yk-gradient-yellow { background: linear-gradient(135deg, #FFD966, #FFC93C); }
+  .yk-shine { position: relative; overflow: hidden; }
+  .yk-shine::after {
+    content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,0.35), transparent);
+    transform: skewX(-20deg); animation: shine 3.5s ease-in-out infinite;
+  }
+  @keyframes shine { 0% { left: -60%; } 40% { left: 130%; } 100% { left: 130%; } }
+  @keyframes bounceIn { 0% { transform: scale(0.6); } 50% { transform: scale(1.15); } 70% { transform: scale(0.95); } 100% { transform: scale(1); } }
+  .animate-bouncein { animation: bounceIn 0.4s ease; }
 `;
 
 export default function App() {
@@ -436,10 +457,10 @@ export default function App() {
   const needsRegistration = currentUser && profileChecked && !profile;
 
   return (
-    <div className="min-h-screen font-body pb-20" style={{ background: "#F2EFE4", color: "#1C1F1B" }}>
+    <div className="yk-bg min-h-screen font-body pb-20" style={{ color: "#1C1F1B" }}>
       <style>{FONT_STYLE}</style>
 
-      <header style={{ background: "#1C1F1B" }} className="sticky top-0 z-30 border-b-4">
+      <header className="yk-header-gradient sticky top-0 z-30 border-b-4">
         <div style={{ borderColor: "#FFC93C" }} className="border-b-4">
           <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3 flex-wrap">
             <button onClick={() => { window.location.href = window.location.origin; }} className="flex items-center gap-2">
@@ -450,7 +471,7 @@ export default function App() {
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Найти что угодно..." className="w-full pl-9 pr-3 py-2.5 rounded-lg outline-none font-body text-sm" style={{ background: "#F2EFE4", color: "#1C1F1B" }} />
             </div>
-            <button onClick={() => (requireAuth() ? setShowCreate(true) : null)} style={{ background: "#2F6B4F" }} className="yk-btn flex items-center gap-1.5 text-white px-4 py-2.5 rounded-lg font-body font-bold text-sm hover:brightness-110">
+            <button onClick={() => (requireAuth() ? setShowCreate(true) : null)} className="yk-gradient-green yk-btn flex items-center gap-1.5 text-white px-4 py-2.5 rounded-lg font-body font-bold text-sm shadow-lg">
               <Plus size={16} strokeWidth={3} /> Разместить
             </button>
           </div>
@@ -495,7 +516,7 @@ export default function App() {
           {tab === "feed" && (
             <>
               <div className="max-w-6xl mx-auto px-4 pt-6 pb-2">
-                <div className="rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ background: "linear-gradient(135deg, #2F6B4F, #1E5A3E)" }}>
+                <div className="yk-gradient-green yk-shine rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3">
                   <p className="font-display font-bold text-white text-base md:text-lg leading-snug">Безлимит объявлений. Всегда бесплатно.</p>
                   <span className="animate-pulseglow font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
                     0 ₽ КОМИССИЯ
@@ -680,10 +701,10 @@ function BottomNav({ tab, setTab, onOpenChats, unreadCount, isWholesaler }) {
           const active = tab === it.id;
           return (
             <button key={it.id} onClick={() => (it.id === "chats" ? onOpenChats() : setTab(it.id))} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
-              <div className="relative">
-                <it.icon size={18} color={active ? "#FFC93C" : "#8B8677"} />
+              <div className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-all ${active ? "animate-bouncein" : ""}`} style={{ background: active ? "#FFC93C" : "transparent" }}>
+                <it.icon size={17} color={active ? "#1C1F1B" : "#8B8677"} />
                 {it.id === "chats" && unreadCount > 0 && (
-                  <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: "#E1543D", color: "#fff" }}>
+                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: "#E1543D", color: "#fff" }}>
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
@@ -711,7 +732,7 @@ function LoggedOutPrompt({ onLogin, text }) {
 
 function CategorySwiper({ activeCat, freeOnly, onSelect }) {
   const scrollRef = useRef(null);
-  const items = [{ id: "all", label: "Всё", icon: null }, { id: "free", label: "Даром", icon: null }, ...CATEGORIES];
+  const items = [{ id: "all", label: "Всё", icon: null, color: "#FFC93C" }, { id: "free", label: "Даром", icon: null, color: "#E1543D" }, ...CATEGORIES];
 
   function scrollBy(dir) {
     scrollRef.current?.scrollBy({ left: dir * 110, behavior: "smooth" });
@@ -730,12 +751,13 @@ function CategorySwiper({ activeCat, freeOnly, onSelect }) {
             <button
               key={it.id}
               onClick={() => onSelect(it.id)}
-              className="flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-xl flex-shrink-0 font-body font-bold text-[11px] whitespace-nowrap border"
+              className={`yk-btn flex flex-col items-center justify-center gap-1 px-4 py-1.5 rounded-xl flex-shrink-0 font-body font-bold text-[11px] whitespace-nowrap border-2 ${isActive ? "animate-bouncein" : ""}`}
               style={{
                 scrollSnapAlign: "start",
-                background: isActive ? "#FFC93C" : "transparent",
+                background: isActive ? it.color : "transparent",
                 color: isActive ? "#1C1F1B" : "#F2EFE4",
-                borderColor: isActive ? "#FFC93C" : "#3A3D37",
+                borderColor: isActive ? it.color : "#3A3D37",
+                boxShadow: isActive ? `0 4px 14px -2px ${it.color}99` : "none",
                 minWidth: 64,
               }}
             >
@@ -823,8 +845,8 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
       ) : null}
       <div className={cover ? "p-4" : "p-4 pt-8"}>
         {!cover && (
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: "#1C1F1B" }}>
-            <Icon size={18} color="#F2EFE4" />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 shadow-md" style={{ background: catIconColor(listing.category) }}>
+            <Icon size={18} color="#fff" />
           </div>
         )}
         <h3 className="font-body font-bold text-sm mb-1 line-clamp-2" style={{ color: "#1C1F1B" }}>{listing.title}</h3>
