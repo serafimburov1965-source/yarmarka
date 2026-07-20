@@ -11,7 +11,7 @@ import {
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
   Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2,
-  Moon, Sun, Award, Sparkles
+  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import Papa from "papaparse";
@@ -149,12 +149,35 @@ const FONT_STYLE = `
   .animate-bouncein { animation: bounceIn 0.4s ease; }
 `;
 
+function wordStem(w) {
+  return w.length > 4 ? w.slice(0, w.length - 2) : w;
+}
+
+function relevanceScore(listing, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return 1;
+  const title = listing.title.toLowerCase();
+  const desc = (listing.description || "").toLowerCase();
+  let score = 0;
+  if (title.includes(q)) score += 10;
+  if (title.startsWith(q)) score += 5;
+  const words = q.split(/\s+/).filter(Boolean);
+  words.forEach((w) => {
+    const stem = wordStem(w);
+    if (title.split(/\s+/).some((tw) => tw.startsWith(stem))) score += 4;
+    if (desc.split(/\s+/).some((dw) => dw.startsWith(stem))) score += 1;
+  });
+  if (desc.includes(q)) score += 2;
+  return score;
+}
+
 export default function App() {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("all");
   const [freeOnly, setFreeOnly] = useState(false);
+  const [priceMax, setPriceMax] = useState(null);
   const [boardMode, setBoardMode] = useState("sell"); // sell | want
   const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc
   const [showCreate, setShowCreate] = useState(false);
@@ -184,6 +207,7 @@ export default function App() {
   const lastMessageIdsRef = useRef(new Set());
   const firstUnreadCheckRef = useRef(true);
   const [favoriteIds, setFavoriteIds] = useState(new Set());
+  const [cartIds, setCartIds] = useState(new Set());
   const [savedSearches, setSavedSearches] = useState([]);
 
   const currentUser = useMemo(() => {
@@ -237,11 +261,15 @@ export default function App() {
   useEffect(() => {
     if (!currentUser || !supabase) {
       setFavoriteIds(new Set());
+      setCartIds(new Set());
       setSavedSearches([]);
       return;
     }
     supabase.from("favorites").select("listing_id").eq("ref", currentUser.ref).then(({ data }) => {
       setFavoriteIds(new Set((data || []).map((f) => f.listing_id)));
+    });
+    supabase.from("cart_items").select("listing_id").eq("ref", currentUser.ref).then(({ data }) => {
+      setCartIds(new Set((data || []).map((c) => c.listing_id)));
     });
     supabase.from("saved_searches").select("*").eq("ref", currentUser.ref).order("created_at", { ascending: false }).then(({ data }) => {
       setSavedSearches(data || []);
@@ -400,6 +428,21 @@ export default function App() {
     loadListings();
   }
 
+  async function toggleCart(listingId) {
+    if (!requireAuth()) return;
+    const inCart = cartIds.has(listingId);
+    const next = new Set(cartIds);
+    if (inCart) {
+      next.delete(listingId);
+      setCartIds(next);
+      await supabase.from("cart_items").delete().eq("ref", currentUser.ref).eq("listing_id", listingId);
+    } else {
+      next.add(listingId);
+      setCartIds(next);
+      await supabase.from("cart_items").insert({ ref: currentUser.ref, listing_id: listingId });
+    }
+  }
+
   async function toggleFavorite(listingId) {
     if (!requireAuth()) return;
     const isFav = favoriteIds.has(listingId);
@@ -443,15 +486,20 @@ export default function App() {
       .filter((l) => !(l.stock_quantity !== null && l.stock_quantity !== undefined && l.stock_quantity <= 0))
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
-      .filter((l) => {
-        const q = search.trim().toLowerCase();
-        if (!q) return true;
-        return l.title.toLowerCase().includes(q) || (l.description || "").toLowerCase().includes(q);
-      });
-    if (sortBy === "price_asc") list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
-    else if (sortBy === "price_desc") list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
+      .filter((l) => priceMax === null || Number(l.price) <= priceMax)
+      .map((l) => ({ l, score: relevanceScore(l, search) }))
+      .filter((x) => x.score > 0)
+      .map((x) => x.l);
+
+    if (search.trim()) {
+      list = list.sort((a, b) => relevanceScore(b, search) - relevanceScore(a, search));
+    } else if (sortBy === "price_asc") {
+      list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
+    } else if (sortBy === "price_desc") {
+      list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
+    }
     return list;
-  }, [listings, activeCat, freeOnly, search, sortBy, boardMode]);
+  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
 
@@ -505,6 +553,13 @@ export default function App() {
                 onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
               />
               <div className="flex items-center gap-1 flex-shrink-0">
+                <select value={priceMax === null ? "" : priceMax} onChange={(e) => setPriceMax(e.target.value === "" ? null : Number(e.target.value))} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
+                  <option value="" style={{ color: "#000" }}>Любая цена</option>
+                  <option value="1000" style={{ color: "#000" }}>до 1 000 ₽</option>
+                  <option value="5000" style={{ color: "#000" }}>до 5 000 ₽</option>
+                  <option value="20000" style={{ color: "#000" }}>до 20 000 ₽</option>
+                  <option value="50000" style={{ color: "#000" }}>до 50 000 ₽</option>
+                </select>
                 <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
                   <option value="newest" style={{ color: "#000" }}>Сначала новые</option>
                   <option value="price_asc" style={{ color: "#000" }}>Дешевле</option>
@@ -553,18 +608,13 @@ export default function App() {
 
           {tab === "favorites" && (
             currentUser ? (
-              <div className="max-w-6xl mx-auto px-4 py-6">
-                <h2 className="font-display font-bold text-lg mb-4">Избранное</h2>
-                {favoriteListings.length === 0 ? (
-                  <p className="text-sm" style={{ color: "#8B8677" }}>Пока пусто — нажми на сердечко на карточке товара, чтобы сохранить</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {favoriteListings.map((l) => (
-                      <ListingCard key={l.id} listing={l} onOpen={() => setShowDetail(l)} isFavorite onToggleFavorite={() => toggleFavorite(l.id)} />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <FavoritesAndCartTab
+                favoriteListings={favoriteListings}
+                cartListings={listings.filter((l) => cartIds.has(l.id))}
+                onOpen={(l) => setShowDetail(l)}
+                onToggleFavorite={toggleFavorite}
+                onToggleCart={toggleCart}
+              />
             ) : (
               <LoggedOutPrompt onLogin={() => setShowAuth(true)} text="Войди, чтобы видеть избранное" />
             )
@@ -644,6 +694,8 @@ export default function App() {
           isOwner={currentUser && showDetail.author_ref === currentUser.ref}
           isFavorite={favoriteIds.has(showDetail.id)}
           onToggleFavorite={() => toggleFavorite(showDetail.id)}
+          isInCart={cartIds.has(showDetail.id)}
+          onToggleCart={() => toggleCart(showDetail.id)}
           onClose={() => setShowDetail(null)}
           onEdit={() => { setEditListing(showDetail); setShowDetail(null); }}
           onDelete={() => handleDelete(showDetail.id)}
@@ -924,6 +976,73 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
   );
 }
 
+function FavoritesAndCartTab({ favoriteListings, cartListings, onOpen, onToggleFavorite, onToggleCart }) {
+  const [view, setView] = useState("favorites");
+
+  const bySeller = useMemo(() => {
+    const map = new Map();
+    cartListings.forEach((l) => {
+      const key = l.author_ref || "unknown";
+      if (!map.has(key)) map.set(key, { name: l.author_name || "Продавец", items: [] });
+      map.get(key).items.push(l);
+    });
+    return Array.from(map.values());
+  }, [cartListings]);
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setView("favorites")} className="px-4 py-2 rounded-full text-xs font-bold border-2" style={view === "favorites" ? { background: "#FFC93C", borderColor: "#FFC93C" } : { borderColor: "#1C1F1B22" }}>
+          Избранное
+        </button>
+        <button onClick={() => setView("cart")} className="px-4 py-2 rounded-full text-xs font-bold border-2 flex items-center gap-1.5" style={view === "cart" ? { background: "#FFC93C", borderColor: "#FFC93C" } : { borderColor: "#1C1F1B22" }}>
+          <ShoppingCart size={13} /> Список покупок {cartListings.length > 0 && `(${cartListings.length})`}
+        </button>
+      </div>
+
+      {view === "favorites" ? (
+        favoriteListings.length === 0 ? (
+          <p className="text-sm" style={{ color: "#8B8677" }}>Пока пусто — нажми на сердечко на карточке товара, чтобы сохранить</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {favoriteListings.map((l) => (
+              <ListingCard key={l.id} listing={l} onOpen={() => onOpen(l)} isFavorite onToggleFavorite={() => onToggleFavorite(l.id)} />
+            ))}
+          </div>
+        )
+      ) : bySeller.length === 0 ? (
+        <p className="text-sm" style={{ color: "#8B8677" }}>Пусто — добавляй товары в «Список покупок» в карточке объявления, чтобы собрать заказ у нескольких продавцов</p>
+      ) : (
+        <div className="flex flex-col gap-5">
+          {bySeller.map((group, idx) => {
+            const total = group.items.reduce((s, l) => s + Number(l.price || 0), 0);
+            return (
+              <div key={idx} className="rounded-2xl p-4" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="font-display font-bold text-sm">{group.name}</p>
+                  <span className="font-mono font-bold text-sm" style={{ color: "#2F6B4F" }}>{total.toLocaleString("ru-RU")} ₽</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {group.items.map((l) => (
+                    <button key={l.id} onClick={() => onOpen(l)} className="flex items-center gap-2 text-left">
+                      {l.images?.[0] && <img src={l.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">{l.title}</p>
+                        <p className="text-[11px]" style={{ color: "#8B8677" }}>{Number(l.price) === 0 ? "Даром" : `${Number(l.price).toLocaleString("ru-RU")} ₽`}</p>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); onToggleCart(l.id); }} className="flex-shrink-0"><X size={14} color="#8B8677" /></button>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({ onCreate, hasAny }) {
   return (
     <div className="text-center py-20 px-4">
@@ -1161,7 +1280,7 @@ function StarRow({ value, size = 14 }) {
   );
 }
 
-function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavorite, onClose, onEdit, onDelete, onMessageSeller, requireAuth, similarListings, favoriteIds, onToggleFavoriteOther, onOpenSimilar }) {
+function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavorite, isInCart, onToggleCart, onClose, onEdit, onDelete, onMessageSeller, requireAuth, similarListings, favoriteIds, onToggleFavoriteOther, onOpenSimilar }) {
   const Icon = catIcon(listing.category);
   const isFree = Number(listing.price) === 0;
   const images = listing.images || [];
@@ -1324,6 +1443,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
               <div className="flex gap-2">
                 <button onClick={onMessageSeller} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm text-white" style={{ background: "#1C1F1B" }}>
                   <MessageCircle size={16} /> Написать продавцу
+                </button>
+                <button onClick={() => (requireAuth() ? onToggleCart() : null)} className="flex items-center justify-center px-4 py-3 rounded-lg border-2" style={isInCart ? { background: "#FFC93C", borderColor: "#FFC93C" } : { borderColor: "#1C1F1B22" }}>
+                  <ShoppingCart size={16} color="#1C1F1B" fill={isInCart ? "#1C1F1B" : "none"} />
                 </button>
               </div>
               {!isReserved && (
@@ -1985,6 +2107,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
   const [showShare, setShowShare] = useState(false);
   const [stats, setStats] = useState(null);
   const [reviewCount, setReviewCount] = useState(0);
+  const [dealsCount, setDealsCount] = useState(0);
   const isVip = profile.vip_until && new Date(profile.vip_until) > new Date();
 
   const completeness = useMemo(() => {
@@ -2009,6 +2132,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
   useEffect(() => {
     if (!supabase) return;
     supabase.from("reviews").select("*", { count: "exact", head: true }).eq("seller_ref", currentUser.ref).then(({ count }) => setReviewCount(count || 0));
+    supabase.from("deals").select("*", { count: "exact", head: true }).or(`buyer_ref.eq.${currentUser.ref},seller_ref.eq.${currentUser.ref}`).eq("status", "confirmed").then(({ count }) => setDealsCount(count || 0));
   }, [currentUser.ref]);
 
   useEffect(() => {
@@ -2076,6 +2200,10 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
             <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><BarChart3 size={11} /> Топ-категория</p>
             <p className="font-mono font-bold text-sm">{stats.topCategory ? catLabel(stats.topCategory) : "—"}</p>
+          </div>
+          <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><KeyRound size={11} /> Сделок завершено</p>
+            <p className="font-mono font-bold text-lg">{dealsCount}</p>
           </div>
         </div>
       )}
@@ -2579,7 +2707,43 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   const roomKey = `call_${[currentUser.ref, otherRef].sort().join("_")}_${listingId || "support"}`;
   const [otherProfile, setOtherProfile] = useState(null);
   const [contextListing, setContextListing] = useState(null);
+  const [deal, setDeal] = useState(null);
+  const [showDealForm, setShowDealForm] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [dealError, setDealError] = useState("");
   const autoRepliedRef = useRef(false);
+
+  const isSeller = contextListing?.author_ref === currentUser.ref;
+
+  async function loadDeal() {
+    if (!supabase || !listingId) return;
+    const { data } = await supabase.from("deals").select("*").eq("listing_id", listingId).or(`buyer_ref.eq.${currentUser.ref},seller_ref.eq.${currentUser.ref}`).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    setDeal(data || null);
+  }
+
+  useEffect(() => {
+    loadDeal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingId]);
+
+  async function startDeal() {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const { data } = await supabase.from("deals").insert({
+      listing_id: listingId,
+      buyer_ref: isSeller ? otherRef : currentUser.ref,
+      seller_ref: isSeller ? currentUser.ref : otherRef,
+      code,
+    }).select().single();
+    setDeal(data);
+    setShowDealForm(false);
+  }
+
+  async function confirmDeal() {
+    if (codeInput.trim() !== deal.code) { setDealError("Код не совпадает"); return; }
+    setDealError("");
+    const { data } = await supabase.from("deals").update({ status: "confirmed", confirmed_at: new Date().toISOString() }).eq("id", deal.id).select().single();
+    setDeal(data);
+  }
 
   useEffect(() => {
     if (!supabase || otherRef === SUPPORT_REF) return;
@@ -2588,7 +2752,7 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
 
   useEffect(() => {
     if (!supabase || !listingId) return;
-    supabase.from("listings").select("id, title, images, price").eq("id", listingId).maybeSingle().then(({ data }) => setContextListing(data));
+    supabase.from("listings").select("id, title, images, price, author_ref").eq("id", listingId).maybeSingle().then(({ data }) => setContextListing(data));
   }, [listingId]);
 
   useEffect(() => {
@@ -2675,6 +2839,41 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
             </button>
           )}
         </div>
+
+        {contextListing && !deal && (
+          <div className="px-4 py-2 border-b" style={{ background: "#E8E3D2", borderColor: "#1C1F1B22" }}>
+            <button onClick={startDeal} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg font-body font-bold text-xs" style={{ background: "#1C1F1B", color: "#F2EFE4" }}>
+              <KeyRound size={13} /> Оформить безопасную сделку
+            </button>
+          </div>
+        )}
+
+        {deal && deal.status === "pending" && (
+          <div className="px-4 py-3 border-b text-center" style={{ background: "#FFC93C", borderColor: "#1C1F1B22" }}>
+            {isSeller ? (
+              <>
+                <p className="text-xs font-bold mb-2" style={{ color: "#1C1F1B" }}>Попроси у покупателя код при встрече</p>
+                <div className="flex gap-2">
+                  <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ""))} maxLength={4} placeholder="0000" className="flex-1 text-center px-3 py-2 rounded-lg text-sm font-mono font-bold" />
+                  <button onClick={confirmDeal} className="px-4 py-2 rounded-lg text-xs font-bold text-white" style={{ background: "#2F6B4F" }}>Подтвердить</button>
+                </div>
+                {dealError && <p className="text-[11px] font-bold mt-1" style={{ color: "#E1543D" }}>{dealError}</p>}
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-bold mb-1" style={{ color: "#1C1F1B" }}>Твой код для продавца при встрече:</p>
+                <p className="font-mono font-black text-2xl" style={{ color: "#1C1F1B" }}>{deal.code}</p>
+              </>
+            )}
+          </div>
+        )}
+
+        {deal && deal.status === "confirmed" && (
+          <div className="px-4 py-2 border-b flex items-center justify-center gap-1.5" style={{ background: "#C7E8B0", borderColor: "#1C1F1B22" }}>
+            <Check size={13} color="#1C1F1B" />
+            <span className="text-xs font-bold" style={{ color: "#1C1F1B" }}>Сделка завершена</span>
+          </div>
+        )}
 
         {contextListing && (
           <button
