@@ -171,6 +171,17 @@ function relevanceScore(listing, query) {
   return score;
 }
 
+function isProActive(profile) {
+  if (!profile) return false;
+  const active = profile.subscription_until && new Date(profile.subscription_until) > new Date();
+  return active && (profile.subscription_tier === "pro" || profile.subscription_tier === "business");
+}
+function isBusinessActive(profile) {
+  if (!profile) return false;
+  const active = profile.subscription_until && new Date(profile.subscription_until) > new Date();
+  return active && profile.subscription_tier === "business";
+}
+
 export default function App() {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -202,6 +213,7 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("yarmarka_dark") === "1");
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("yarmarka_onboarded"));
+  const [showSubscribe, setShowSubscribe] = useState(false);
   const [streak, setStreak] = useState(0);
   const [streakReward, setStreakReward] = useState(null);
   const lastMessageIdsRef = useRef(new Set());
@@ -389,7 +401,7 @@ export default function App() {
       telegram_username: tgUser?.username || null,
       author_ref: currentUser.ref,
       author_name: profile.name,
-      author_vip: !!(profile.vip_until && new Date(profile.vip_until) > new Date()),
+      author_vip: isProActive(profile) || !!(profile.vip_until && new Date(profile.vip_until) > new Date()),
       views: 0,
     };
     const { error } = await supabase.from("listings").insert(row);
@@ -620,7 +632,7 @@ export default function App() {
             )
           )}
 
-          {tab === "b2b" && profile?.is_wholesaler && (
+          {tab === "b2b" && isBusinessActive(profile) && (
             <B2BTab listings={listings} onOpenListing={(l) => setShowDetail(l)} onOpenCreate={() => { requireAuth() ? setShowCreate(true) : null; }} onOpenBulk={() => setTab("profile")} />
           )}
 
@@ -655,6 +667,7 @@ export default function App() {
                 onSupport={() => setActiveChat({ listingId: null, otherRef: SUPPORT_REF, otherName: "Поддержка" })}
                 onLogout={async () => { if (supabase && currentUser.source === "site") await supabase.auth.signOut(); }}
                 onEdit={() => setShowEditProfile(true)}
+                onOpenSubscribe={() => setShowSubscribe(true)}
               />
             ) : (
               <LoggedOutPrompt onLogin={() => setShowAuth(true)} text="Войди, чтобы посмотреть профиль" />
@@ -663,7 +676,7 @@ export default function App() {
         </>
       )}
 
-      <BottomNav tab={tab} setTab={setTab} onOpenChats={openChatsTab} unreadCount={unreadCount} isWholesaler={profile?.is_wholesaler || false} />
+      <BottomNav tab={tab} setTab={setTab} onOpenChats={openChatsTab} unreadCount={unreadCount} isWholesaler={isBusinessActive(profile)} />
 
       {showCreate && (
         <ListingFormModal
@@ -671,7 +684,9 @@ export default function App() {
           onClose={() => { setShowCreate(false); setRepostSource(null); }}
           onSubmit={handleCreate}
           limitReached={false}
-          isWholesaler={profile?.is_wholesaler || false}
+          isWholesaler={isBusinessActive(profile)}
+          isPro={isProActive(profile)}
+          onOpenSubscribe={() => setShowSubscribe(true)}
           initial={repostSource}
         />
       )}
@@ -683,7 +698,9 @@ export default function App() {
           onClose={() => setEditListing(null)}
           onSubmit={(payload) => handleUpdate(editListing.id, payload)}
           limitReached={false}
-          isWholesaler={profile?.is_wholesaler || false}
+          isWholesaler={isBusinessActive(profile)}
+          isPro={isProActive(profile)}
+          onOpenSubscribe={() => setShowSubscribe(true)}
         />
       )}
 
@@ -737,6 +754,10 @@ export default function App() {
 
       {showWelcome && (
         <WelcomeTour onDone={() => { localStorage.setItem("yarmarka_onboarded", "1"); setShowWelcome(false); }} />
+      )}
+
+      {showSubscribe && currentUser && profile && (
+        <SubscribeModal currentUser={currentUser} profile={profile} onClose={() => setShowSubscribe(false)} />
       )}
 
       {streakReward && (
@@ -1058,7 +1079,7 @@ function EmptyState({ onCreate, hasAny }) {
   );
 }
 
-function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler }) {
+function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler, isPro, onOpenSubscribe }) {
   const isEdit = mode === "edit";
   const [postType, setPostType] = useState(initial?.post_type || "sell");
   const [title, setTitle] = useState(initial?.title || "");
@@ -1085,12 +1106,14 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const maxPhotos = isPro ? 10 : MAX_PHOTOS;
+
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     if (!files.length) return;
-    const room = MAX_PHOTOS - images.length;
-    if (room <= 0) return setError(`Максимум ${MAX_PHOTOS} фото`);
+    const room = maxPhotos - images.length;
+    if (room <= 0) return setError(`Максимум ${maxPhotos} фото`);
     setUploading(true);
     setError("");
     try {
@@ -1159,7 +1182,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
               </label>
             )}
             <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: iPhone 13, 128GB" className="input" /></Field>
-            <Field label={`Фото (до ${MAX_PHOTOS})`}>
+            <Field label={`Фото (до ${maxPhotos}${!isPro ? " · до 10 в PRO" : ""})`}>
               <div className="flex flex-wrap gap-2">
                 {images.map((src, idx) => (
                   <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border-2" style={{ borderColor: "#1C1F1B22" }}>
@@ -1169,7 +1192,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                     </button>
                   </div>
                 ))}
-                {images.length < MAX_PHOTOS && (
+                {images.length < maxPhotos && (
                   <label className="w-16 h-16 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer gap-0.5" style={{ borderColor: "#1C1F1B44", color: "#5B584E" }}>
                     {uploading ? <span className="text-[9px] font-bold">...</span> : (<><ImagePlus size={16} /><span className="text-[9px] font-bold">Фото</span></>)}
                     <input type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
@@ -1229,18 +1252,27 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
             </label>
             {Number(price) > 0 && (
               <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-                <label className="flex items-center gap-2 cursor-pointer mb-2">
-                  <input type="checkbox" checked={autoDiscount} onChange={(e) => setAutoDiscount(e.target.checked)} className="w-4 h-4" />
-                  <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены</span>
-                </label>
-                {autoDiscount && (
-                  <div className="flex gap-2 items-center text-xs" style={{ color: "#5B584E" }}>
-                    снижать на
-                    <input type="number" min="1" max="50" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
-                    % каждые
-                    <input type="number" min="1" max="30" value={discountDays} onChange={(e) => setDiscountDays(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
-                    дн.
-                  </div>
+                {isPro ? (
+                  <>
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input type="checkbox" checked={autoDiscount} onChange={(e) => setAutoDiscount(e.target.checked)} className="w-4 h-4" />
+                      <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены</span>
+                    </label>
+                    {autoDiscount && (
+                      <div className="flex gap-2 items-center text-xs" style={{ color: "#5B584E" }}>
+                        снижать на
+                        <input type="number" min="1" max="50" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
+                        % каждые
+                        <input type="number" min="1" max="30" value={discountDays} onChange={(e) => setDiscountDays(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
+                        дн.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <button type="button" onClick={onOpenSubscribe} className="w-full flex items-center justify-between">
+                    <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены — только в PRO</span>
+                    <Crown size={14} color="#FFC93C" />
+                  </button>
                 )}
               </div>
             )}
@@ -2102,13 +2134,86 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit }) {
+function SubscribeModal({ currentUser, profile, onClose }) {
+  const [busyTier, setBusyTier] = useState(null);
+  const [error, setError] = useState("");
+
+  async function subscribe(tier) {
+    setBusyTier(tier);
+    setError("");
+    try {
+      const res = await fetch("/api/create-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: currentUser.ref, tier }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.confirmation_url) {
+        setError(data.error || "Оплата пока не подключена — попробуй позже");
+        setBusyTier(null);
+        return;
+      }
+      window.location.href = data.confirmation_url;
+    } catch {
+      setError("Не получилось связаться с сервером оплаты");
+      setBusyTier(null);
+    }
+  }
+
+  const plans = [
+    { id: "pro", name: "PRO", price: "299 ₽/мес", features: ["VIP-бейдж всегда", "Автоснижение цены", "Гибкий резерв товара", "Полная аналитика", "До 10 фото"] },
+    { id: "business", name: "BUSINESS", price: "990 ₽/мес", features: ["Всё из PRO", "B2B-раздел", "Массовая загрузка CSV", "Витрина-каталог"] },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Тарифы</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          {plans.map((p) => {
+            const isCurrent = (p.id === "pro" && isProActive(profile) && !isBusinessActive(profile)) || (p.id === "business" && isBusinessActive(profile));
+            return (
+              <div key={p.id} className="rounded-2xl p-4" style={{ background: "#fff", border: `2px solid ${isCurrent ? "#FFC93C" : "#1C1F1B22"}` }}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="font-display font-bold text-base">{p.name}</p>
+                  <p className="font-mono font-bold text-sm" style={{ color: "#2F6B4F" }}>{p.price}</p>
+                </div>
+                <ul className="flex flex-col gap-1.5 mb-4">
+                  {p.features.map((f) => (
+                    <li key={f} className="text-xs flex items-center gap-1.5" style={{ color: "#5B584E" }}>
+                      <Check size={13} color="#2F6B4F" /> {f}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => subscribe(p.id)}
+                  disabled={isCurrent || busyTier === p.id}
+                  style={{ background: isCurrent ? "#1C1F1B22" : "#2F6B4F" }}
+                  className="w-full py-2.5 rounded-lg font-body font-bold text-sm text-white disabled:opacity-70"
+                >
+                  {isCurrent ? "Уже активен" : busyTier === p.id ? "Секунду..." : "Оформить"}
+                </button>
+              </div>
+            );
+          })}
+          {error && <p className="text-xs font-bold text-center" style={{ color: "#E1543D" }}>{error}</p>}
+          <p className="text-[11px] text-center" style={{ color: "#8B8677" }}>Оплата через ЮKassa. Подписка продлевается вручную каждый месяц.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit, onOpenSubscribe }) {
   const [showBulk, setShowBulk] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [stats, setStats] = useState(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [dealsCount, setDealsCount] = useState(0);
-  const isVip = profile.vip_until && new Date(profile.vip_until) > new Date();
+  const isVip = isProActive(profile) || (profile.vip_until && new Date(profile.vip_until) > new Date());
 
   const completeness = useMemo(() => {
     let pct = 0;
@@ -2169,6 +2274,23 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
         <button onClick={onEdit} className="px-3 py-2 rounded-lg font-body font-bold text-xs border-2 flex-shrink-0" style={{ borderColor: "#1C1F1B22" }}>Изменить</button>
       </div>
 
+      <button onClick={onOpenSubscribe} className="w-full flex items-center justify-between p-4 rounded-2xl mb-6 yk-btn" style={{ background: isProActive(profile) ? "linear-gradient(135deg, #FFD966, #FFC93C)" : "#1C1F1B" }}>
+        <div className="flex items-center gap-2">
+          <Crown size={18} color={isProActive(profile) ? "#1C1F1B" : "#FFC93C"} fill={isProActive(profile) ? "#1C1F1B" : "none"} />
+          <div className="text-left">
+            <p className="font-display font-bold text-sm" style={{ color: isProActive(profile) ? "#1C1F1B" : "#F2EFE4" }}>
+              {isBusinessActive(profile) ? "Тариф BUSINESS" : isProActive(profile) ? "Тариф PRO" : "Бесплатный тариф"}
+            </p>
+            <p className="text-[11px]" style={{ color: isProActive(profile) ? "#1C1F1B99" : "#8B8677" }}>
+              {isProActive(profile) ? `до ${new Date(profile.subscription_until).toLocaleDateString("ru-RU")}` : "Открой PRO и BUSINESS"}
+            </p>
+          </div>
+        </div>
+        <span className="text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: isProActive(profile) ? "#1C1F1B" : "#FFC93C", color: isProActive(profile) ? "#F2EFE4" : "#1C1F1B" }}>
+          {isProActive(profile) ? "Управлять" : "Улучшить"}
+        </span>
+      </button>
+
       <div className="flex gap-2 mb-6">
         <button onClick={() => setShowShare(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
           <Store size={14} /> Витрина
@@ -2208,11 +2330,15 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
         </div>
       )}
 
-      {profile.is_wholesaler && (
+      {isBusinessActive(profile) ? (
         <button onClick={() => setShowBulk(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm text-white mb-6" style={{ background: "#1C1F1B" }}>
           <Upload size={16} /> Массовая загрузка из CSV
         </button>
-      )}
+      ) : profile.is_wholesaler ? (
+        <button onClick={onOpenSubscribe} className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm mb-6 border-2" style={{ borderColor: "#1C1F1B22" }}>
+          <Crown size={16} color="#FFC93C" /> Массовая загрузка — оформи BUSINESS
+        </button>
+      ) : null}
 
       <div className="mb-6">
         <div className="flex items-center justify-between mb-1.5">
