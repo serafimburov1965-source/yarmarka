@@ -509,11 +509,30 @@ export default function App() {
       list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
     } else if (sortBy === "price_desc") {
       list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
+    } else {
+      list = [...list].sort((a, b) => {
+        const aBumped = a.bumped_at && new Date(a.bumped_at) > new Date(Date.now() - 7 * 86400000) ? new Date(a.bumped_at).getTime() : 0;
+        const bBumped = b.bumped_at && new Date(b.bumped_at) > new Date(Date.now() - 7 * 86400000) ? new Date(b.bumped_at).getTime() : 0;
+        const aKey = Math.max(aBumped, new Date(a.created_at).getTime());
+        const bKey = Math.max(bBumped, new Date(b.created_at).getTime());
+        return bKey - aKey;
+      });
     }
     return list;
   }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
+
+  const recommendedListings = useMemo(() => {
+    if (!currentUser) return [];
+    const interestIds = new Set([...favoriteIds, ...cartIds]);
+    if (interestIds.size === 0) return [];
+    const catCounts = {};
+    listings.forEach((l) => { if (interestIds.has(l.id)) catCounts[l.category] = (catCounts[l.category] || 0) + 1; });
+    const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!topCat) return [];
+    return listings.filter((l) => l.category === topCat && !interestIds.has(l.id) && (l.post_type || "sell") === "sell").slice(0, 8);
+  }, [listings, favoriteIds, cartIds, currentUser]);
 
   if (configError) {
     return (
@@ -603,6 +622,18 @@ export default function App() {
                 </div>
               </div>
               <main className="max-w-6xl mx-auto px-4 py-6">
+                {recommendedListings.length > 0 && !search.trim() && (
+                  <div className="mb-6">
+                    <h3 className="font-display font-bold text-sm mb-2 flex items-center gap-1.5"><Sparkles size={14} color="#FFC93C" /> Рекомендуем для тебя</h3>
+                    <div className="flex gap-3 overflow-x-auto pb-1">
+                      {recommendedListings.map((l) => (
+                        <div key={l.id} className="w-36 flex-shrink-0">
+                          <ListingCard listing={l} onOpen={() => setShowDetail(l)} isFavorite={favoriteIds.has(l.id)} onToggleFavorite={() => toggleFavorite(l.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {loading ? (
                   <div className="text-center py-24 font-body" style={{ color: "#8B8677" }}>Загружаем объявления...</div>
                 ) : filtered.length === 0 ? (
@@ -965,6 +996,11 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
           <Crown size={12} color="#1C1F1B" fill="#1C1F1B" />
         </div>
       )}
+      {listing.promoted_until && new Date(listing.promoted_until) > new Date() && (
+        <div className="absolute top-3 left-11 z-10 flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#E1543D", color: "#fff" }}>
+          <Sparkles size={9} /> Топ
+        </div>
+      )}
       {cover ? (
         <div className="w-full aspect-[4/3] overflow-hidden relative">
           <img src={cover} alt={listing.title} className="w-full h-full object-cover" loading="lazy" />
@@ -1323,6 +1359,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
   const [showSeller, setShowSeller] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
+  const [showBoost, setShowBoost] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const viewedRef = useRef(false);
 
@@ -1510,6 +1547,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
               <button onClick={() => setShowQR(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
                 <QrCode size={13} /> QR-стикер
               </button>
+              <button onClick={() => setShowBoost(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs text-white" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                <Sparkles size={13} /> Продвинуть
+              </button>
               <button onClick={() => setConfirmDelete(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22", color: "#E1543D" }}>
                 <Trash2 size={13} /> Удалить
               </button>
@@ -1562,6 +1602,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
       )}
       {showFullscreen && (
         <FullscreenGallery images={images} startIndex={activeImg} onClose={() => setShowFullscreen(false)} />
+      )}
+      {showBoost && (
+        <BoostModal listingId={listing.id} currentUser={currentUser} onClose={() => setShowBoost(false)} />
       )}
     </div>
   );
@@ -1657,6 +1700,65 @@ function FullscreenGallery({ images, startIndex, onClose }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function BoostModal({ listingId, currentUser, onClose }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+
+  const options = [
+    { id: "boost_top", label: "Поднятие в топ", desc: "Объявление сразу поднимается в начало ленты", price: "79 ₽", icon: ArrowUpDown },
+    { id: "boost_vip", label: "VIP-бейдж (7 дней)", desc: "Золотая корона на карточке объявления", price: "99 ₽", icon: Crown },
+    { id: "boost_promote", label: "Продвижение (3 дня)", desc: "Показ в блоке «Рекомендуем» на видном месте", price: "149 ₽", icon: Sparkles },
+  ];
+
+  async function buy(purpose) {
+    setBusy(purpose);
+    setError("");
+    try {
+      const res = await fetch("/api/create-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: currentUser.ref, purpose, listingId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.confirmation_url) {
+        setError(data.error || "Оплата пока не подключена");
+        setBusy(null);
+        return;
+      }
+      window.location.href = data.confirmation_url;
+    } catch {
+      setError("Не получилось связаться с сервером оплаты");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Продвинуть объявление</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-3">
+          {options.map((o) => (
+            <button key={o.id} onClick={() => buy(o.id)} disabled={busy === o.id} className="flex items-center gap-3 p-3 rounded-xl text-left disabled:opacity-60" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#FFC93C" }}>
+                <o.icon size={18} color="#1C1F1B" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold">{o.label}</p>
+                <p className="text-[11px]" style={{ color: "#8B8677" }}>{o.desc}</p>
+              </div>
+              <span className="font-mono font-bold text-sm flex-shrink-0" style={{ color: "#2F6B4F" }}>{busy === o.id ? "..." : o.price}</span>
+            </button>
+          ))}
+          {error && <p className="text-xs font-bold text-center" style={{ color: "#E1543D" }}>{error}</p>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2161,8 +2263,8 @@ function SubscribeModal({ currentUser, profile, onClose }) {
   }
 
   const plans = [
-    { id: "pro", name: "PRO", price: "299 ₽/мес", features: ["VIP-бейдж всегда", "Автоснижение цены", "Гибкий резерв товара", "Полная аналитика", "До 10 фото"] },
-    { id: "business", name: "BUSINESS", price: "990 ₽/мес", features: ["Всё из PRO", "B2B-раздел", "Массовая загрузка CSV", "Витрина-каталог"] },
+    { id: "pro", name: "PRO", price: "199 ₽/мес", features: ["VIP-бейдж всегда", "Автоснижение цены", "Гибкий резерв товара", "Полная аналитика", "До 10 фото", "Рекомендации «для тебя»", "-20% на разовые услуги ниже"] },
+    { id: "business", name: "BUSINESS", price: "490 ₽/мес", features: ["Всё из PRO", "B2B-раздел", "Массовая загрузка CSV", "Витрина-каталог", "Расчёт доставки СДЭК", "Приоритет в поиске"] },
   ];
 
   return (
