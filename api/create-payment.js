@@ -1,10 +1,11 @@
+// Серверная функция: создаёт платёж в ЮKassa. Секретные ключи не попадают в браузер.
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { ref, tier } = req.body || {};
-  if (!ref || !["pro", "business"].includes(tier)) {
+  const { ref, tier, purpose, listingId } = req.body || {};
+  if (!ref) {
     return res.status(400).json({ error: "Некорректные параметры" });
   }
 
@@ -14,10 +15,26 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Оплата ещё не настроена на сервере" });
   }
 
-  const prices = { pro: "299.00", business: "990.00" };
-  const labels = { pro: "Подписка PRO на Ярмарке (1 месяц)", business: "Подписка BUSINESS на Ярмарке (1 месяц)" };
+  let amountValue, description, metadata;
 
-  const idempotenceKey = `${ref}_${tier}_${Date.now()}`;
+  if (tier && ["pro", "business"].includes(tier)) {
+    const prices = { pro: "199.00", business: "490.00" };
+    const labels = { pro: "Подписка PRO на Ярмарке (1 месяц)", business: "Подписка BUSINESS на Ярмарке (1 месяц)" };
+    amountValue = prices[tier];
+    description = labels[tier];
+    metadata = { ref, tier };
+  } else if (purpose && listingId) {
+    const boostPrices = { boost_top: "79.00", boost_vip: "99.00", boost_promote: "149.00" };
+    const boostLabels = { boost_top: "Поднятие в топ (7 дней)", boost_vip: "VIP-бейдж (7 дней)", boost_promote: "Продвижение объявления (3 дня)" };
+    if (!boostPrices[purpose]) return res.status(400).json({ error: "Неизвестная услуга" });
+    amountValue = boostPrices[purpose];
+    description = boostLabels[purpose];
+    metadata = { ref, purpose, listingId };
+  } else {
+    return res.status(400).json({ error: "Некорректные параметры" });
+  }
+
+  const idempotenceKey = `${ref}_${tier || purpose}_${Date.now()}`;
 
   try {
     const response = await fetch("https://api.yookassa.ru/v3/payments", {
@@ -28,11 +45,11 @@ export default async function handler(req, res) {
         Authorization: "Basic " + Buffer.from(`${shopId}:${secretKey}`).toString("base64"),
       },
       body: JSON.stringify({
-        amount: { value: prices[tier], currency: "RUB" },
+        amount: { value: amountValue, currency: "RUB" },
         confirmation: { type: "redirect", return_url: `${req.headers.origin || ""}/?payment=success` },
         capture: true,
-        description: labels[tier],
-        metadata: { ref, tier },
+        description,
+        metadata,
       }),
     });
 
