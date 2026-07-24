@@ -11,7 +11,7 @@ import {
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
   Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2,
-  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound
+  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound, Filter, SlidersHorizontal
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import Papa from "papaparse";
@@ -189,6 +189,11 @@ export default function App() {
   const [activeCat, setActiveCat] = useState("all");
   const [freeOnly, setFreeOnly] = useState(false);
   const [priceMax, setPriceMax] = useState(null);
+  const [priceMin, setPriceMin] = useState(null);
+  const [cityFilter, setCityFilter] = useState("all");
+  const [conditionFilter, setConditionFilter] = useState("all");
+  const [barterOnly, setBarterOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [boardMode, setBoardMode] = useState("sell"); // sell | want
   const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc
   const [showCreate, setShowCreate] = useState(false);
@@ -499,6 +504,10 @@ export default function App() {
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
       .filter((l) => priceMax === null || Number(l.price) <= priceMax)
+      .filter((l) => priceMin === null || Number(l.price) >= priceMin)
+      .filter((l) => cityFilter === "all" || l.city === cityFilter)
+      .filter((l) => conditionFilter === "all" || l.condition === conditionFilter)
+      .filter((l) => !barterOnly || l.barter)
       .map((l) => ({ l, score: relevanceScore(l, search) }))
       .filter((x) => x.score > 0)
       .map((x) => x.l);
@@ -519,7 +528,7 @@ export default function App() {
       });
     }
     return list;
-  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax]);
+  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
 
@@ -583,25 +592,9 @@ export default function App() {
                 freeOnly={freeOnly}
                 onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
               />
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <select value={priceMax === null ? "" : priceMax} onChange={(e) => setPriceMax(e.target.value === "" ? null : Number(e.target.value))} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
-                  <option value="" style={{ color: "#000" }}>Любая цена</option>
-                  <option value="1000" style={{ color: "#000" }}>до 1 000 ₽</option>
-                  <option value="5000" style={{ color: "#000" }}>до 5 000 ₽</option>
-                  <option value="20000" style={{ color: "#000" }}>до 20 000 ₽</option>
-                  <option value="50000" style={{ color: "#000" }}>до 50 000 ₽</option>
-                </select>
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="text-xs font-bold rounded-full px-2.5 py-2 border" style={{ background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
-                  <option value="newest" style={{ color: "#000" }}>Сначала новые</option>
-                  <option value="price_asc" style={{ color: "#000" }}>Дешевле</option>
-                  <option value="price_desc" style={{ color: "#000" }}>Дороже</option>
-                </select>
-                {currentUser && (
-                  <button onClick={saveCurrentSearch} title="Сохранить поиск" className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
-                    <Bookmark size={13} color="#F2EFE4" />
-                  </button>
-                )}
-              </div>
+              <button onClick={() => setShowFilters(true)} className="yk-btn flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold flex-shrink-0 border-2" style={{ background: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#FFC93C" : "transparent", borderColor: "#FFC93C", color: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#1C1F1B" : "#FFC93C" }}>
+                <SlidersHorizontal size={13} /> Фильтры
+              </button>
             </div>
           </>
         )}
@@ -764,6 +757,19 @@ export default function App() {
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} onSuccess={() => { setShowAuth(false); flashToast("Готово"); }} />}
 
+      {showFilters && (
+        <FiltersModal
+          priceMin={priceMin} setPriceMin={setPriceMin}
+          priceMax={priceMax} setPriceMax={setPriceMax}
+          cityFilter={cityFilter} setCityFilter={setCityFilter}
+          conditionFilter={conditionFilter} setConditionFilter={setConditionFilter}
+          barterOnly={barterOnly} setBarterOnly={setBarterOnly}
+          sortBy={sortBy} setSortBy={setSortBy}
+          onSave={currentUser ? saveCurrentSearch : null}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
+
       {showEditProfile && profile && (
         <EditProfileModal profile={profile} onClose={() => setShowEditProfile(false)} onSaved={(p) => { setProfile(p); setShowEditProfile(false); flashToast("Профиль обновлён"); }} />
       )}
@@ -889,6 +895,76 @@ function LoggedOutPrompt({ onLogin, text }) {
       </div>
       <p className="font-body text-sm mb-4" style={{ color: "#5B584E" }}>{text}</p>
       <button onClick={onLogin} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm">Войти</button>
+    </div>
+  );
+}
+
+function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter, setCityFilter, conditionFilter, setConditionFilter, barterOnly, setBarterOnly, sortBy, setSortBy, onSave, onClose }) {
+  function reset() {
+    setPriceMin(null); setPriceMax(null); setCityFilter("all"); setConditionFilter("all"); setBarterOnly(false); setSortBy("newest");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Фильтры</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <Field label="Сортировка">
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="input">
+              <option value="newest">Сначала новые</option>
+              <option value="price_asc">Сначала дешевле</option>
+              <option value="price_desc">Сначала дороже</option>
+            </select>
+          </Field>
+
+          <Field label="Город">
+            <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="input">
+              <option value="all">Все города</option>
+              {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Цена, ₽">
+            <div className="flex gap-2 items-center">
+              <input value={priceMin ?? ""} onChange={(e) => setPriceMin(e.target.value === "" ? null : Number(e.target.value.replace(/\D/g, "")))} placeholder="от" inputMode="numeric" className="input font-mono" />
+              <span style={{ color: "#8B8677" }}>—</span>
+              <input value={priceMax ?? ""} onChange={(e) => setPriceMax(e.target.value === "" ? null : Number(e.target.value.replace(/\D/g, "")))} placeholder="до" inputMode="numeric" className="input font-mono" />
+            </div>
+          </Field>
+
+          <Field label="Состояние">
+            <div className="flex gap-2">
+              {[["all", "Любое"], ["new", "Новое"], ["used", "Б/у"]].map(([val, label]) => (
+                <button key={val} onClick={() => setConditionFilter(val)} className="flex-1 px-3 py-2 rounded-lg text-xs font-bold border-2"
+                  style={conditionFilter === val ? { background: "#2F6B4F", color: "#fff", borderColor: "#2F6B4F" } : { background: "#fff", borderColor: "#1C1F1B22" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={barterOnly} onChange={(e) => setBarterOnly(e.target.checked)} className="w-4 h-4" />
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Repeat size={13} /> Только с возможностью обмена</span>
+          </label>
+
+          <div className="flex gap-2 mt-2">
+            <button onClick={reset} className="flex-1 py-3 rounded-lg font-body font-bold text-sm border-2" style={{ borderColor: "#1C1F1B22" }}>Сбросить</button>
+            <button onClick={onClose} style={{ background: "#2F6B4F" }} className="flex-1 text-white py-3 rounded-lg font-body font-bold text-sm">Показать</button>
+          </div>
+          {onSave && (
+            <button onClick={() => { onSave(); onClose(); }} className="text-xs font-bold flex items-center justify-center gap-1.5" style={{ color: "#2F6B4F" }}>
+              <Bookmark size={13} /> Сохранить этот поиск
+            </button>
+          )}
+        </div>
+        <style>{`
+          .input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }
+        `}</style>
+      </div>
     </div>
   );
 }
@@ -1709,9 +1785,9 @@ function BoostModal({ listingId, currentUser, onClose }) {
   const [error, setError] = useState("");
 
   const options = [
-    { id: "boost_top", label: "Поднятие в топ", desc: "Объявление сразу поднимается в начало ленты", price: "79 ₽", icon: ArrowUpDown },
-    { id: "boost_vip", label: "VIP-бейдж (7 дней)", desc: "Золотая корона на карточке объявления", price: "99 ₽", icon: Crown },
-    { id: "boost_promote", label: "Продвижение (3 дня)", desc: "Показ в блоке «Рекомендуем» на видном месте", price: "149 ₽", icon: Sparkles },
+    { id: "boost_top", label: "Поднятие в топ", desc: "Объявление сразу поднимается в начало ленты", price: "19 ₽", icon: ArrowUpDown },
+    { id: "boost_vip", label: "VIP-бейдж (7 дней)", desc: "Золотая корона на карточке объявления", price: "29 ₽", icon: Crown },
+    { id: "boost_promote", label: "Продвижение (3 дня)", desc: "Показ в блоке «Рекомендуем» на видном месте", price: "49 ₽", icon: Sparkles },
   ];
 
   async function buy(purpose) {
@@ -2264,7 +2340,7 @@ function SubscribeModal({ currentUser, profile, onClose }) {
 
   const plans = [
     { id: "pro", name: "PRO", price: "199 ₽/мес", features: ["VIP-бейдж всегда", "Автоснижение цены", "Гибкий резерв товара", "Полная аналитика", "До 10 фото", "Рекомендации «для тебя»", "-20% на разовые услуги ниже"] },
-    { id: "business", name: "BUSINESS", price: "490 ₽/мес", features: ["Всё из PRO", "B2B-раздел", "Массовая загрузка CSV", "Витрина-каталог", "Расчёт доставки СДЭК", "Приоритет в поиске"] },
+    { id: "business", name: "BUSINESS", price: "499 ₽/мес", features: ["Всё из PRO", "B2B-раздел", "Массовая загрузка CSV", "Витрина-каталог", "Расчёт доставки СДЭК", "Приоритет в поиске"] },
   ];
 
   return (
