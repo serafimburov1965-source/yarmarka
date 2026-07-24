@@ -18,13 +18,13 @@ export default async function handler(req, res) {
   let amountValue, description, metadata;
 
   if (tier && ["pro", "business"].includes(tier)) {
-    const prices = { pro: "199.00", business: "490.00" };
+    const prices = { pro: "199.00", business: "499.00" };
     const labels = { pro: "Подписка PRO на Ярмарке (1 месяц)", business: "Подписка BUSINESS на Ярмарке (1 месяц)" };
     amountValue = prices[tier];
     description = labels[tier];
     metadata = { ref, tier };
   } else if (purpose && listingId) {
-    const boostPrices = { boost_top: "79.00", boost_vip: "99.00", boost_promote: "149.00" };
+    const boostPrices = { boost_top: "19.00", boost_vip: "29.00", boost_promote: "49.00" };
     const boostLabels = { boost_top: "Поднятие в топ (7 дней)", boost_vip: "VIP-бейдж (7 дней)", boost_promote: "Продвижение объявления (3 дня)" };
     if (!boostPrices[purpose]) return res.status(400).json({ error: "Неизвестная услуга" });
     amountValue = boostPrices[purpose];
