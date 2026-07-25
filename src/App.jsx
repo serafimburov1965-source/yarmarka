@@ -11,7 +11,7 @@ import {
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
   Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2,
-  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound, Filter, SlidersHorizontal
+  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound, Filter, SlidersHorizontal, UserX, Mic, Square
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import Papa from "papaparse";
@@ -133,8 +133,10 @@ const FONT_STYLE = `
     background-image: radial-gradient(var(--yk-dot, #1C1F1B14) 1.4px, transparent 1.4px);
     background-size: 22px 22px;
     color: var(--yk-text, #1C1F1B);
+    --yk-muted: #8B8677;
+    --yk-muted2: #5B584E;
   }
-  .dark { --yk-bg: #15181A; --yk-dot: #F2EFE422; --yk-text: #F2EFE4; }
+  .dark { --yk-bg: #15181A; --yk-dot: #F2EFE422; --yk-text: #F2EFE4; --yk-muted: #A8A296; --yk-muted2: #C9C4B8; }
   .yk-header-gradient { background: linear-gradient(120deg, #1C1F1B 0%, #21362B 55%, #1C1F1B 100%); }
   .yk-gradient-green { background: linear-gradient(135deg, #34825C, #1E5A3E); }
   .yk-gradient-yellow { background: linear-gradient(135deg, #FFD966, #FFC93C); }
@@ -219,6 +221,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("yarmarka_dark") === "1");
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("yarmarka_onboarded"));
   const [showSubscribe, setShowSubscribe] = useState(false);
+  const [showRequisites, setShowRequisites] = useState(() => new URLSearchParams(window.location.search).get("requisites") === "1");
   const [streak, setStreak] = useState(0);
   const [streakReward, setStreakReward] = useState(null);
   const lastMessageIdsRef = useRef(new Set());
@@ -498,6 +501,7 @@ export default function App() {
 
   const filtered = useMemo(() => {
     let list = listings
+      .filter((l) => !l.publish_at || new Date(l.publish_at) <= new Date() || l.author_ref === currentUser?.ref)
       .filter((l) => (l.post_type || "sell") === boardMode)
       .filter((l) => !l.wholesale_only)
       .filter((l) => !(l.stock_quantity !== null && l.stock_quantity !== undefined && l.stock_quantity <= 0))
@@ -528,7 +532,7 @@ export default function App() {
       });
     }
     return list;
-  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly]);
+  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly, currentUser]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
 
@@ -545,10 +549,10 @@ export default function App() {
 
   if (configError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 font-body text-center" style={{ background: "#F2EFE4" }}>
+      <div className="min-h-screen flex items-center justify-center p-6 font-body text-center" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div>
           <p className="font-display font-bold mb-2">База данных не подключена</p>
-          <p className="text-sm" style={{ color: "#5B584E" }}>Заполни VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY — инструкция в README.md</p>
+          <p className="text-sm" style={{ color: "var(--yk-muted2)" }}>Заполни VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY — инструкция в README.md</p>
         </div>
       </div>
     );
@@ -568,7 +572,7 @@ export default function App() {
               <h1 className="font-display font-bold text-xl md:text-2xl tracking-tight" style={{ color: "#F2EFE4" }}>ЯРМАРКА</h1>
             </button>
             <div className="flex-1 min-w-[160px] relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--yk-muted)" }} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Найти что угодно..." className="w-full pl-9 pr-3 py-2.5 rounded-lg outline-none font-body text-sm" style={{ background: "#F2EFE4", color: "#1C1F1B" }} />
             </div>
             <button onClick={() => (requireAuth() ? setShowCreate(true) : null)} className="yk-gradient-green yk-btn flex items-center gap-1.5 text-white px-4 py-2.5 rounded-lg font-body font-bold text-sm shadow-lg">
@@ -628,7 +632,7 @@ export default function App() {
                   </div>
                 )}
                 {loading ? (
-                  <div className="text-center py-24 font-body" style={{ color: "#8B8677" }}>Загружаем объявления...</div>
+                  <div className="text-center py-24 font-body" style={{ color: "var(--yk-muted)" }}>Загружаем объявления...</div>
                 ) : filtered.length === 0 ? (
                   <EmptyState onCreate={() => (requireAuth() ? setShowCreate(true) : null)} hasAny={listings.length > 0} />
                 ) : (
@@ -692,6 +696,7 @@ export default function App() {
                 onLogout={async () => { if (supabase && currentUser.source === "site") await supabase.auth.signOut(); }}
                 onEdit={() => setShowEditProfile(true)}
                 onOpenSubscribe={() => setShowSubscribe(true)}
+                onOpenRequisites={() => setShowRequisites(true)}
               />
             ) : (
               <LoggedOutPrompt onLogin={() => setShowAuth(true)} text="Войди, чтобы посмотреть профиль" />
@@ -797,14 +802,16 @@ export default function App() {
         <SubscribeModal currentUser={currentUser} profile={profile} onClose={() => setShowSubscribe(false)} />
       )}
 
+      {showRequisites && <RequisitesModal onClose={() => setShowRequisites(false)} />}
+
       {streakReward && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "#1C1F1BCC" }}>
-          <div className="animate-popin rounded-2xl p-6 text-center max-w-xs" style={{ background: "#F2EFE4" }}>
+          <div className="animate-popin rounded-2xl p-6 text-center max-w-xs" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
             <div className="w-16 h-16 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "#FFC93C" }}>
               <Flame size={30} color="#1C1F1B" />
             </div>
             <p className="font-display font-bold text-lg mb-1">{streakReward} дней подряд!</p>
-            <p className="text-sm mb-4" style={{ color: "#5B584E" }}>Держишь серию заходов — держи награду: VIP-статус на 3 дня для всех твоих новых объявлений.</p>
+            <p className="text-sm mb-4" style={{ color: "var(--yk-muted2)" }}>Держишь серию заходов — держи награду: VIP-статус на 3 дня для всех твоих новых объявлений.</p>
             <button onClick={() => setStreakReward(null)} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm w-full">Класс!</button>
           </div>
         </div>
@@ -825,12 +832,12 @@ function WelcomeTour({ onDone }) {
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: "#1C1F1BE6" }}>
-      <div className="animate-popin w-full max-w-xs rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+      <div className="animate-popin w-full max-w-xs rounded-2xl p-6 text-center" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#FFC93C" }}>
           <s.icon size={28} color="#1C1F1B" />
         </div>
         <p className="font-display font-bold text-lg mb-2">{s.title}</p>
-        <p className="text-sm mb-5" style={{ color: "#5B584E" }}>{s.text}</p>
+        <p className="text-sm mb-5" style={{ color: "var(--yk-muted2)" }}>{s.text}</p>
         <div className="flex justify-center gap-1.5 mb-5">
           {slides.map((_, i) => (
             <div key={i} className="rounded-full transition-all" style={{ width: i === step ? 18 : 6, height: 6, background: i === step ? "#2F6B4F" : "#1C1F1B33" }} />
@@ -848,7 +855,7 @@ function WelcomeTour({ onDone }) {
             {step < slides.length - 1 ? "Далее" : "Начать"}
           </button>
         </div>
-        <button onClick={onDone} className="text-xs font-bold mt-3" style={{ color: "#8B8677" }}>Пропустить</button>
+        <button onClick={onDone} className="text-xs font-bold mt-3" style={{ color: "var(--yk-muted)" }}>Пропустить</button>
       </div>
     </div>
   );
@@ -871,14 +878,14 @@ function BottomNav({ tab, setTab, onOpenChats, unreadCount, isWholesaler }) {
           return (
             <button key={it.id} onClick={() => (it.id === "chats" ? onOpenChats() : setTab(it.id))} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
               <div className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-all ${active ? "animate-bouncein" : ""}`} style={{ background: active ? "#FFC93C" : "transparent" }}>
-                <it.icon size={17} color={active ? "#1C1F1B" : "#8B8677"} />
+                <it.icon size={17} color={active ? "#1C1F1B" : "var(--yk-muted)"} />
                 {it.id === "chats" && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: "#E1543D", color: "#fff" }}>
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
               </div>
-              <span className="text-[9px] font-bold font-body" style={{ color: active ? "#FFC93C" : "#8B8677" }}>{it.label}</span>
+              <span className="text-[9px] font-bold font-body" style={{ color: active ? "#FFC93C" : "var(--yk-muted)" }}>{it.label}</span>
             </button>
           );
         })}
@@ -893,7 +900,7 @@ function LoggedOutPrompt({ onLogin, text }) {
       <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center rotate-[-6deg]" style={{ background: "#E8E3D2" }}>
         <User size={22} style={{ color: "#2F6B4F" }} />
       </div>
-      <p className="font-body text-sm mb-4" style={{ color: "#5B584E" }}>{text}</p>
+      <p className="font-body text-sm mb-4" style={{ color: "var(--yk-muted2)" }}>{text}</p>
       <button onClick={onLogin} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm">Войти</button>
     </div>
   );
@@ -906,7 +913,7 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Фильтры</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -930,7 +937,7 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
           <Field label="Цена, ₽">
             <div className="flex gap-2 items-center">
               <input value={priceMin ?? ""} onChange={(e) => setPriceMin(e.target.value === "" ? null : Number(e.target.value.replace(/\D/g, "")))} placeholder="от" inputMode="numeric" className="input font-mono" />
-              <span style={{ color: "#8B8677" }}>—</span>
+              <span style={{ color: "var(--yk-muted)" }}>—</span>
               <input value={priceMax ?? ""} onChange={(e) => setPriceMax(e.target.value === "" ? null : Number(e.target.value.replace(/\D/g, "")))} placeholder="до" inputMode="numeric" className="input font-mono" />
             </div>
           </Field>
@@ -948,7 +955,7 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={barterOnly} onChange={(e) => setBarterOnly(e.target.checked)} className="w-4 h-4" />
-            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Repeat size={13} /> Только с возможностью обмена</span>
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Repeat size={13} /> Только с возможностью обмена</span>
           </label>
 
           <div className="flex gap-2 mt-2">
@@ -1100,7 +1107,7 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
             <Repeat size={10} /> Обмен
           </span>
         )}
-        <div className="flex items-center justify-between text-[11px] font-body" style={{ color: "#5B584E" }}>
+        <div className="flex items-center justify-between text-[11px] font-body" style={{ color: "var(--yk-muted2)" }}>
           <span className="flex items-center gap-1"><MapPin size={11} /> {listing.city}</span>
           <span>{timeAgo(listing.created_at)}</span>
         </div>
@@ -1135,7 +1142,7 @@ function FavoritesAndCartTab({ favoriteListings, cartListings, onOpen, onToggleF
 
       {view === "favorites" ? (
         favoriteListings.length === 0 ? (
-          <p className="text-sm" style={{ color: "#8B8677" }}>Пока пусто — нажми на сердечко на карточке товара, чтобы сохранить</p>
+          <p className="text-sm" style={{ color: "var(--yk-muted)" }}>Пока пусто — нажми на сердечко на карточке товара, чтобы сохранить</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {favoriteListings.map((l) => (
@@ -1144,7 +1151,7 @@ function FavoritesAndCartTab({ favoriteListings, cartListings, onOpen, onToggleF
           </div>
         )
       ) : bySeller.length === 0 ? (
-        <p className="text-sm" style={{ color: "#8B8677" }}>Пусто — добавляй товары в «Список покупок» в карточке объявления, чтобы собрать заказ у нескольких продавцов</p>
+        <p className="text-sm" style={{ color: "var(--yk-muted)" }}>Пусто — добавляй товары в «Список покупок» в карточке объявления, чтобы собрать заказ у нескольких продавцов</p>
       ) : (
         <div className="flex flex-col gap-5">
           {bySeller.map((group, idx) => {
@@ -1161,9 +1168,9 @@ function FavoritesAndCartTab({ favoriteListings, cartListings, onOpen, onToggleF
                       {l.images?.[0] && <img src={l.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />}
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold truncate">{l.title}</p>
-                        <p className="text-[11px]" style={{ color: "#8B8677" }}>{Number(l.price) === 0 ? "Даром" : `${Number(l.price).toLocaleString("ru-RU")} ₽`}</p>
+                        <p className="text-[11px]" style={{ color: "var(--yk-muted)" }}>{Number(l.price) === 0 ? "Даром" : `${Number(l.price).toLocaleString("ru-RU")} ₽`}</p>
                       </div>
-                      <button onClick={(e) => { e.stopPropagation(); onToggleCart(l.id); }} className="flex-shrink-0"><X size={14} color="#8B8677" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); onToggleCart(l.id); }} className="flex-shrink-0"><X size={14} color="var(--yk-muted)" /></button>
                     </button>
                   ))}
                 </div>
@@ -1183,7 +1190,7 @@ function EmptyState({ onCreate, hasAny }) {
         <Tag size={26} style={{ color: "#2F6B4F" }} />
       </div>
       <h3 className="font-display font-bold text-lg mb-2">{hasAny ? "Ничего не нашлось" : "Здесь пока пусто"}</h3>
-      <p className="font-body text-sm mb-5" style={{ color: "#5B584E" }}>{hasAny ? "Попробуй другой запрос или категорию." : "Стань первым, кто разместит объявление — это бесплатно и займёт минуту."}</p>
+      <p className="font-body text-sm mb-5" style={{ color: "var(--yk-muted2)" }}>{hasAny ? "Попробуй другой запрос или категорию." : "Стань первым, кто разместит объявление — это бесплатно и займёт минуту."}</p>
       <button onClick={onCreate} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm inline-flex items-center gap-1.5">
         <Plus size={16} strokeWidth={3} /> Разместить объявление
       </button>
@@ -1213,6 +1220,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
   const [discountDays, setDiscountDays] = useState(initial?.auto_discount_days || 3);
   const [stockQuantity, setStockQuantity] = useState(initial?.stock_quantity ?? "");
   const [wholesaleOnly, setWholesaleOnly] = useState(initial?.wholesale_only || false);
+  const [publishAt, setPublishAt] = useState(initial?.publish_at ? initial.publish_at.slice(0, 16) : "");
   const [images, setImages] = useState(initial?.images || []);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -1261,13 +1269,14 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
       auto_discount_days: Number(discountDays) || 3,
       stock_quantity: stockQuantity === "" ? null : Math.max(0, Number(stockQuantity)),
       wholesale_only: wholesaleOnly,
+      publish_at: publishAt ? new Date(publishAt).toISOString() : null,
     });
     setSubmitting(false);
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">{isEdit ? "Редактировать объявление" : "Новое объявление"}</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -1290,7 +1299,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
             {isWholesaler && (
               <label className="flex items-center gap-2 cursor-pointer p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
                 <input type="checkbox" checked={wholesaleOnly} onChange={(e) => setWholesaleOnly(e.target.checked)} className="w-4 h-4" />
-                <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Только для оптовиков (B2B-раздел)</span>
+                <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Briefcase size={13} /> Только для оптовиков (B2B-раздел)</span>
               </label>
             )}
             <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: iPhone 13, 128GB" className="input" /></Field>
@@ -1305,7 +1314,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                   </div>
                 ))}
                 {images.length < maxPhotos && (
-                  <label className="w-16 h-16 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer gap-0.5" style={{ borderColor: "#1C1F1B44", color: "#5B584E" }}>
+                  <label className="w-16 h-16 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer gap-0.5" style={{ borderColor: "#1C1F1B44", color: "var(--yk-muted2)" }}>
                     {uploading ? <span className="text-[9px] font-bold">...</span> : (<><ImagePlus size={16} /><span className="text-[9px] font-bold">Фото</span></>)}
                     <input type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
                   </label>
@@ -1360,7 +1369,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
             </Field>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={barter} onChange={(e) => setBarter(e.target.checked)} className="w-4 h-4" />
-              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Repeat size={13} /> Готов на обмен</span>
+              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Repeat size={13} /> Готов на обмен</span>
             </label>
             {Number(price) > 0 && (
               <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
@@ -1368,10 +1377,10 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                   <>
                     <label className="flex items-center gap-2 cursor-pointer mb-2">
                       <input type="checkbox" checked={autoDiscount} onChange={(e) => setAutoDiscount(e.target.checked)} className="w-4 h-4" />
-                      <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены</span>
+                      <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><TrendingDown size={13} /> Автоснижение цены</span>
                     </label>
                     {autoDiscount && (
-                      <div className="flex gap-2 items-center text-xs" style={{ color: "#5B584E" }}>
+                      <div className="flex gap-2 items-center text-xs" style={{ color: "var(--yk-muted2)" }}>
                         снижать на
                         <input type="number" min="1" max="50" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} className="w-14 px-2 py-1 rounded border text-center" style={{ borderColor: "#1C1F1B22" }} />
                         % каждые
@@ -1382,7 +1391,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                   </>
                 ) : (
                   <button type="button" onClick={onOpenSubscribe} className="w-full flex items-center justify-between">
-                    <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><TrendingDown size={13} /> Автоснижение цены — только в PRO</span>
+                    <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><TrendingDown size={13} /> Автоснижение цены — только в PRO</span>
                     <Crown size={14} color="#FFC93C" />
                   </button>
                 )}
@@ -1390,6 +1399,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
             )}
             <Field label="Описание"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Кратко расскажи о товаре" className="input resize-none" /></Field>
             <Field label="Контакт (телефон / телеграм)"><input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@username или +7..." className="input" /></Field>
+            <Field label="Отложенная публикация (необязательно)">
+              <input type="datetime-local" value={publishAt} onChange={(e) => setPublishAt(e.target.value)} className="input" />
+            </Field>
             {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
             <button onClick={submit} disabled={submitting} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm mt-1 disabled:opacity-60">
               {submitting ? "Сохраняем..." : isEdit ? "Сохранить изменения" : "Опубликовать бесплатно"}
@@ -1408,7 +1420,7 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
 function Field({ label, children }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-bold" style={{ color: "#5B584E" }}>{label}</span>
+      <span className="text-xs font-bold" style={{ color: "var(--yk-muted2)" }}>{label}</span>
       {children}
     </label>
   );
@@ -1418,7 +1430,7 @@ function StarRow({ value, size = 14 }) {
   return (
     <div className="flex gap-0.5">
       {[1, 2, 3, 4, 5].map((n) => (
-        <Star key={n} size={size} fill={n <= Math.round(value) ? "#FFC93C" : "none"} color={n <= Math.round(value) ? "#FFC93C" : "#8B8677"} />
+        <Star key={n} size={size} fill={n <= Math.round(value) ? "#FFC93C" : "none"} color={n <= Math.round(value) ? "#FFC93C" : "var(--yk-muted)"} />
       ))}
     </div>
   );
@@ -1465,16 +1477,27 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
   async function share() {
     const url = `${window.location.origin}/?listing=${listing.id}`;
-    if (navigator.share) {
-      try { await navigator.share({ title: listing.title, url }); } catch {}
-    } else {
+    const cover = listing.images?.[0];
+    try {
+      if (cover && navigator.canShare) {
+        const blob = await (await fetch(cover)).blob();
+        const file = new File([blob], "yarmarka.jpg", { type: blob.type || "image/jpeg" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: listing.title, text: `${listing.title} — смотри на Ярмарке`, files: [file], url });
+          return;
+        }
+      }
+      if (navigator.share) {
+        await navigator.share({ title: listing.title, url });
+        return;
+      }
       await navigator.clipboard.writeText(url);
-    }
+    } catch {}
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto animate-slideup" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         {images.length > 0 ? (
           <div className="relative">
             <button onClick={onClose} className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#1C1F1BCC" }}>
@@ -1526,7 +1549,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
           </div>
         )}
         <div className="p-5 flex flex-col gap-4">
-          <div className="flex items-center gap-3 flex-wrap text-xs font-bold" style={{ color: "#5B584E" }}>
+          <div className="flex items-center gap-3 flex-wrap text-xs font-bold" style={{ color: "var(--yk-muted2)" }}>
             <span className="flex items-center gap-1"><MapPin size={13} /> {listing.city}</span>
             <span>{catLabel(listing.category)}</span>
             <span>{listing.condition === "new" ? "Новое" : "Б/у"}</span>
@@ -1552,7 +1575,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
           </div>
 
           {listing.address && (
-            <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}>
+            <p className="text-xs flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}>
               <MapPin size={12} /> {listing.address}
             </p>
           )}
@@ -1569,15 +1592,15 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
           {listing.author_name && (
             <div className="flex items-center justify-between">
-              <button onClick={() => setShowSeller(true)} className="text-xs underline" style={{ color: "#8B8677" }}>Продавец: {listing.author_name}</button>
+              <button onClick={() => setShowSeller(true)} className="text-xs underline" style={{ color: "var(--yk-muted)" }}>Продавец: {listing.author_name}</button>
               <div className="flex items-center gap-1.5">
                 {reviews.length > 0 ? (
                   <>
                     <StarRow value={avgRating} size={12} />
-                    <span className="text-[10px] font-bold" style={{ color: "#8B8677" }}>({reviews.length})</span>
+                    <span className="text-[10px] font-bold" style={{ color: "var(--yk-muted)" }}>({reviews.length})</span>
                   </>
                 ) : (
-                  <span className="text-[10px]" style={{ color: "#8B8677" }}>Нет отзывов</span>
+                  <span className="text-[10px]" style={{ color: "var(--yk-muted)" }}>Нет отзывов</span>
                 )}
               </div>
             </div>
@@ -1610,7 +1633,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
           )}
 
           {isOwner && listing.auto_discount_enabled && (
-            <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}>
+            <p className="text-xs flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}>
               <TrendingDown size={12} /> Цена снижается на {listing.auto_discount_percent}% каждые {listing.auto_discount_days} дн.
             </p>
           )}
@@ -1655,7 +1678,7 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
             </div>
           )}
 
-          <p className="text-[11px] text-center" style={{ color: "#8B8677" }}>Опубликовано {timeAgo(listing.created_at)}</p>
+          <p className="text-[11px] text-center" style={{ color: "var(--yk-muted)" }}>Опубликовано {timeAgo(listing.created_at)}</p>
         </div>
       </div>
 
@@ -1814,7 +1837,7 @@ function BoostModal({ listingId, currentUser, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Продвинуть объявление</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -1827,7 +1850,7 @@ function BoostModal({ listingId, currentUser, onClose }) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold">{o.label}</p>
-                <p className="text-[11px]" style={{ color: "#8B8677" }}>{o.desc}</p>
+                <p className="text-[11px]" style={{ color: "var(--yk-muted)" }}>{o.desc}</p>
               </div>
               <span className="font-mono font-bold text-sm flex-shrink-0" style={{ color: "#2F6B4F" }}>{busy === o.id ? "..." : o.price}</span>
             </button>
@@ -1843,7 +1866,7 @@ function QRModal({ listing, onClose }) {
   const url = `${window.location.origin}/?listing=${listing.id}`;
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display font-bold text-base">QR-стикер</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -1852,9 +1875,9 @@ function QRModal({ listing, onClose }) {
           <QRCodeSVG value={url} size={180} />
         </div>
         <p className="font-body font-bold text-sm mb-1">{listing.title}</p>
-        <p className="text-xs mb-4" style={{ color: "#8B8677" }}>Наклей на товар — сканирование сразу откроет это объявление</p>
-        <p className="text-[10px] break-all" style={{ color: "#8B8677" }}>{url}</p>
-        <p className="text-[11px] mt-3" style={{ color: "#5B584E" }}>Сделай скриншот этого экрана, чтобы распечатать</p>
+        <p className="text-xs mb-4" style={{ color: "var(--yk-muted)" }}>Наклей на товар — сканирование сразу откроет это объявление</p>
+        <p className="text-[10px] break-all" style={{ color: "var(--yk-muted)" }}>{url}</p>
+        <p className="text-[11px] mt-3" style={{ color: "var(--yk-muted2)" }}>Сделай скриншот этого экрана, чтобы распечатать</p>
       </div>
     </div>
   );
@@ -1879,7 +1902,7 @@ function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display font-bold text-base">Отзыв о продавце</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -1887,7 +1910,7 @@ function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
         <div className="flex gap-1 mb-4 justify-center">
           {[1, 2, 3, 4, 5].map((n) => (
             <button key={n} onClick={() => setRating(n)}>
-              <Star size={28} fill={n <= rating ? "#FFC93C" : "none"} color={n <= rating ? "#FFC93C" : "#8B8677"} />
+              <Star size={28} fill={n <= rating ? "#FFC93C" : "none"} color={n <= rating ? "#FFC93C" : "var(--yk-muted)"} />
             </button>
           ))}
         </div>
@@ -1920,13 +1943,13 @@ function ReportModal({ listingId, reporterRef, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display font-bold text-base">Пожаловаться</h2>
           <button onClick={onClose}><X size={20} /></button>
         </div>
         {done ? (
-          <p className="text-sm text-center py-6" style={{ color: "#5B584E" }}>Спасибо, мы посмотрим</p>
+          <p className="text-sm text-center py-6" style={{ color: "var(--yk-muted2)" }}>Спасибо, мы посмотрим</p>
         ) : (
           <>
             <div className="flex flex-col gap-2 mb-4">
@@ -1971,15 +1994,15 @@ function SellerProfileModal({ sellerRef, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Профиль продавца</h2>
           <button onClick={onClose}><X size={20} /></button>
         </div>
         {loading ? (
-          <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Загружаем...</p>
+          <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
         ) : !profile ? (
-          <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Профиль не найден</p>
+          <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Профиль не найден</p>
         ) : (
           <div className="p-5 flex flex-col gap-5">
             <div className="flex items-center gap-3">
@@ -1988,14 +2011,14 @@ function SellerProfileModal({ sellerRef, onClose }) {
               </div>
               <div>
                 <p className="font-display font-bold text-base">{profile.name}</p>
-                <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city}</p>
+                <p className="text-xs" style={{ color: "var(--yk-muted)" }}>{profile.city}</p>
                 {reviews.length > 0 ? (
                   <div className="flex items-center gap-1.5 mt-1">
                     <StarRow value={avgRating} size={12} />
-                    <span className="text-[10px] font-bold" style={{ color: "#8B8677" }}>({reviews.length} отзывов)</span>
+                    <span className="text-[10px] font-bold" style={{ color: "var(--yk-muted)" }}>({reviews.length} отзывов)</span>
                   </div>
                 ) : (
-                  <span className="text-[10px]" style={{ color: "#8B8677" }}>Нет отзывов</span>
+                  <span className="text-[10px]" style={{ color: "var(--yk-muted)" }}>Нет отзывов</span>
                 )}
               </div>
             </div>
@@ -2003,7 +2026,7 @@ function SellerProfileModal({ sellerRef, onClose }) {
             <div>
               <h3 className="font-display font-bold text-sm mb-2">Объявления ({listings.length})</h3>
               {listings.length === 0 ? (
-                <p className="text-xs" style={{ color: "#8B8677" }}>Пока ничего не выложено</p>
+                <p className="text-xs" style={{ color: "var(--yk-muted)" }}>Пока ничего не выложено</p>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {listings.map((l) => <ListingCard key={l.id} listing={l} onOpen={() => {}} isFavorite={false} onToggleFavorite={() => {}} />)}
@@ -2043,7 +2066,7 @@ function RegisterScreen({ currentUser, onDone }) {
     <div className="max-w-md mx-auto px-4 py-10">
       <div className="rounded-2xl p-6" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
         <h2 className="font-display font-bold text-lg mb-1">Регистрация</h2>
-        <p className="text-xs mb-5" style={{ color: "#5B584E" }}>
+        <p className="text-xs mb-5" style={{ color: "var(--yk-muted2)" }}>
           {currentUser.source === "telegram" ? "Заведи профиль на Ярмарке — привязывается к твоему Telegram-аккаунту." : "Заведи профиль, чтобы размещать объявления и писать в чат."}
         </p>
         <div className="flex flex-col gap-4">
@@ -2055,7 +2078,7 @@ function RegisterScreen({ currentUser, onDone }) {
           </Field>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isWholesaler} onChange={(e) => setIsWholesaler(e.target.checked)} className="w-4 h-4" />
-            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
           </label>
           {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
           <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
@@ -2126,7 +2149,7 @@ function AuthModal({ onClose, onSuccess }) {
   if (mode === "reset") {
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-        <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+        <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
           <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
             <h2 className="font-display font-bold text-base">Восстановление пароля</h2>
             <button onClick={onClose}><X size={20} /></button>
@@ -2134,7 +2157,7 @@ function AuthModal({ onClose, onSuccess }) {
           <div className="p-5 flex flex-col gap-4">
             <Field label="Email">
               <div className="relative">
-                <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+                <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--yk-muted)" }} />
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="input pl-8" />
               </div>
             </Field>
@@ -2158,13 +2181,13 @@ function AuthModal({ onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">{mode === "signup" ? "Регистрация" : "Вход"}</h2>
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <div className="p-5 flex flex-col gap-4">
-          <p className="text-xs" style={{ color: "#5B584E" }}>Если открыл сайт из Telegram — вход и регистрация уже происходят автоматически. Это форма для входа с обычного сайта.</p>
+          <p className="text-xs" style={{ color: "var(--yk-muted2)" }}>Если открыл сайт из Telegram — вход и регистрация уже происходят автоматически. Это форма для входа с обычного сайта.</p>
 
           <button onClick={() => oauthSignIn("google")} disabled={busy} className="flex items-center justify-center gap-2 py-3 rounded-lg font-body font-bold text-sm border-2 disabled:opacity-60" style={{ borderColor: "#1C1F1B22", background: "#fff" }}>
             <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4c-7.5 0-14 4.2-17.7 10.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.2-5.1l-6.6-5.6C29.6 35 26.9 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.9 39.7 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.6 5.6C41.5 36.4 44 30.7 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
@@ -2173,19 +2196,19 @@ function AuthModal({ onClose, onSuccess }) {
 
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px" style={{ background: "#1C1F1B22" }} />
-            <span className="text-[10px] font-bold" style={{ color: "#8B8677" }}>ИЛИ EMAIL</span>
+            <span className="text-[10px] font-bold" style={{ color: "var(--yk-muted)" }}>ИЛИ EMAIL</span>
             <div className="flex-1 h-px" style={{ background: "#1C1F1B22" }} />
           </div>
 
           <Field label="Email">
             <div className="relative">
-              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--yk-muted)" }} />
               <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="input pl-8" />
             </div>
           </Field>
           <Field label="Пароль">
             <div className="relative">
-              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--yk-muted)" }} />
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Минимум 6 символов" className="input pl-8" />
             </div>
           </Field>
@@ -2198,7 +2221,7 @@ function AuthModal({ onClose, onSuccess }) {
               {mode === "signup" ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Зарегистрироваться"}
             </button>
             {mode === "signin" && (
-              <button onClick={() => { setMode("reset"); setError(""); }} className="text-xs font-bold" style={{ color: "#8B8677" }}>
+              <button onClick={() => { setMode("reset"); setError(""); }} className="text-xs font-bold" style={{ color: "var(--yk-muted)" }}>
                 Забыли пароль?
               </button>
             )}
@@ -2261,7 +2284,7 @@ function EditProfileModal({ profile, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Редактировать профиль</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -2285,13 +2308,13 @@ function EditProfileModal({ profile, onClose, onSaved }) {
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isWholesaler} onChange={(e) => setIsWholesaler(e.target.checked)} className="w-4 h-4" />
-            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
+            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Briefcase size={13} /> Я перекупщик/оптовик</span>
           </label>
 
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
             <label className="flex items-center gap-2 cursor-pointer mb-2">
               <input type="checkbox" checked={autoReplyEnabled} onChange={(e) => setAutoReplyEnabled(e.target.checked)} className="w-4 h-4" />
-              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "#5B584E" }}><MessageSquareText size={13} /> Автоответ в чате</span>
+              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><MessageSquareText size={13} /> Автоответ в чате</span>
             </label>
             {autoReplyEnabled && (
               <textarea value={autoReplyText} onChange={(e) => setAutoReplyText(e.target.value)} rows={2} className="input resize-none" placeholder="Текст автоответа" />
@@ -2345,7 +2368,7 @@ function SubscribeModal({ currentUser, profile, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Тарифы</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -2361,7 +2384,7 @@ function SubscribeModal({ currentUser, profile, onClose }) {
                 </div>
                 <ul className="flex flex-col gap-1.5 mb-4">
                   {p.features.map((f) => (
-                    <li key={f} className="text-xs flex items-center gap-1.5" style={{ color: "#5B584E" }}>
+                    <li key={f} className="text-xs flex items-center gap-1.5" style={{ color: "var(--yk-muted2)" }}>
                       <Check size={13} color="#2F6B4F" /> {f}
                     </li>
                   ))}
@@ -2378,14 +2401,14 @@ function SubscribeModal({ currentUser, profile, onClose }) {
             );
           })}
           {error && <p className="text-xs font-bold text-center" style={{ color: "#E1543D" }}>{error}</p>}
-          <p className="text-[11px] text-center" style={{ color: "#8B8677" }}>Оплата через ЮKassa. Подписка продлевается вручную каждый месяц.</p>
+          <p className="text-[11px] text-center" style={{ color: "var(--yk-muted)" }}>Оплата через ЮKassa. Подписка продлевается вручную каждый месяц.</p>
         </div>
       </div>
     </div>
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit, onOpenSubscribe }) {
+function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit, onOpenSubscribe, onOpenRequisites }) {
   const [showBulk, setShowBulk] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [stats, setStats] = useState(null);
@@ -2443,7 +2466,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
             {profile.name}
             {isVip && <Crown size={14} color="#FFC93C" fill="#FFC93C" />}
           </p>
-          <p className="text-xs" style={{ color: "#8B8677" }}>{profile.city} · {currentUser.source === "telegram" ? "Telegram" : "Сайт"}{profile.is_wholesaler ? " · Оптовик" : ""}</p>
+          <p className="text-xs" style={{ color: "var(--yk-muted)" }}>{profile.city} · {currentUser.source === "telegram" ? "Telegram" : "Сайт"}{profile.is_wholesaler ? " · Оптовик" : ""}</p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 px-2.5 py-1.5 rounded-full" style={{ background: "#FFC93C" }}>
           <Flame size={13} color="#1C1F1B" />
@@ -2459,7 +2482,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
             <p className="font-display font-bold text-sm" style={{ color: isProActive(profile) ? "#1C1F1B" : "#F2EFE4" }}>
               {isBusinessActive(profile) ? "Тариф BUSINESS" : isProActive(profile) ? "Тариф PRO" : "Бесплатный тариф"}
             </p>
-            <p className="text-[11px]" style={{ color: isProActive(profile) ? "#1C1F1B99" : "#8B8677" }}>
+            <p className="text-[11px]" style={{ color: isProActive(profile) ? "#1C1F1B99" : "var(--yk-muted)" }}>
               {isProActive(profile) ? `до ${new Date(profile.subscription_until).toLocaleDateString("ru-RU")}` : "Открой PRO и BUSINESS"}
             </p>
           </div>
@@ -2486,23 +2509,23 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
       {stats && myListings.length > 0 && (
         <div className="grid grid-cols-2 gap-3 mb-6">
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><Eye size={11} /> Просмотров всего</p>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><Eye size={11} /> Просмотров всего</p>
             <p className="font-mono font-bold text-lg">{stats.views}</p>
           </div>
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><Heart size={11} /> В избранном</p>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><Heart size={11} /> В избранном</p>
             <p className="font-mono font-bold text-lg">{stats.favorites}</p>
           </div>
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><MessageCircle size={11} /> Сообщений получено</p>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><MessageCircle size={11} /> Сообщений получено</p>
             <p className="font-mono font-bold text-lg">{stats.messages}</p>
           </div>
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><BarChart3 size={11} /> Топ-категория</p>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><BarChart3 size={11} /> Топ-категория</p>
             <p className="font-mono font-bold text-sm">{stats.topCategory ? catLabel(stats.topCategory) : "—"}</p>
           </div>
           <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "#8B8677" }}><KeyRound size={11} /> Сделок завершено</p>
+            <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><KeyRound size={11} /> Сделок завершено</p>
             <p className="font-mono font-bold text-lg">{dealsCount}</p>
           </div>
         </div>
@@ -2520,7 +2543,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
 
       <div className="mb-6">
         <div className="flex items-center justify-between mb-1.5">
-          <p className="text-xs font-bold" style={{ color: "#5B584E" }}>Профиль заполнен на {completeness}%</p>
+          <p className="text-xs font-bold" style={{ color: "var(--yk-muted2)" }}>Профиль заполнен на {completeness}%</p>
           <Sparkles size={13} style={{ color: "#FFC93C" }} />
         </div>
         <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "#1C1F1B22" }}>
@@ -2529,7 +2552,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
       </div>
 
       <div className="flex items-center justify-between p-3 rounded-lg mb-6" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
-        <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#5B584E" }}>
+        <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: "var(--yk-muted2)" }}>
           {darkMode ? <Moon size={14} /> : <Sun size={14} />} Тёмная тема
         </span>
         <button onClick={() => setDarkMode(!darkMode)} className="w-11 h-6 rounded-full relative transition-colors" style={{ background: darkMode ? "#2F6B4F" : "#1C1F1B33" }}>
@@ -2557,9 +2580,9 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
               <div key={s.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B11" }}>
                 <button onClick={() => onApplySearch(s)} className="text-left flex-1 min-w-0">
                   <p className="text-sm font-bold truncate">{s.query || "Все объявления"}</p>
-                  <p className="text-[11px]" style={{ color: "#8B8677" }}>{s.category === "all" ? "Все категории" : catLabel(s.category)}</p>
+                  <p className="text-[11px]" style={{ color: "var(--yk-muted)" }}>{s.category === "all" ? "Все категории" : catLabel(s.category)}</p>
                 </button>
-                <button onClick={() => onDeleteSearch(s.id)} className="flex-shrink-0 ml-2"><X size={16} color="#8B8677" /></button>
+                <button onClick={() => onDeleteSearch(s.id)} className="flex-shrink-0 ml-2"><X size={16} color="var(--yk-muted)" /></button>
               </div>
             ))}
           </div>
@@ -2568,7 +2591,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
 
       <h3 className="font-display font-bold text-sm mb-3">Мои объявления ({myListings.length})</h3>
       {myListings.length === 0 ? (
-        <p className="text-sm" style={{ color: "#8B8677" }}>Ты ещё ничего не разместил</p>
+        <p className="text-sm" style={{ color: "var(--yk-muted)" }}>Ты ещё ничего не разместил</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {myListings.map((l) => (
@@ -2587,6 +2610,11 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
                   Остаток: {l.stock_quantity}
                 </span>
               )}
+              {l.publish_at && new Date(l.publish_at) > new Date() && (
+                <span className="absolute top-3 left-3 z-10 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: "#4EA5D9", color: "#fff" }}>
+                  <Calendar size={10} /> {new Date(l.publish_at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -2594,6 +2622,10 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
 
       {showShare && <ShareStorefrontModal profile={profile} currentUser={currentUser} onClose={() => setShowShare(false)} />}
       {showBulk && <BulkUploadModal currentUser={currentUser} profile={profile} onClose={() => setShowBulk(false)} />}
+
+      <p className="text-center mt-6">
+        <button onClick={onOpenRequisites} className="text-[10px] underline" style={{ color: "var(--yk-muted)" }}>Реквизиты</button>
+      </p>
     </div>
   );
 }
@@ -2602,7 +2634,7 @@ function ShareStorefrontModal({ profile, currentUser, onClose }) {
   const url = `${window.location.origin}/?seller=${currentUser.ref}`;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-xs rounded-t-2xl sm:rounded-2xl p-6 text-center" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-display font-bold text-base">Витрина «{profile.name}»</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -2610,8 +2642,8 @@ function ShareStorefrontModal({ profile, currentUser, onClose }) {
         <div className="bg-white p-4 rounded-xl inline-block mb-3">
           <QRCodeSVG value={url} size={160} />
         </div>
-        <p className="text-xs mb-2" style={{ color: "#8B8677" }}>Ссылка на твою витрину со всеми объявлениями:</p>
-        <p className="text-[10px] break-all p-2 rounded" style={{ background: "#fff", color: "#5B584E" }}>{url}</p>
+        <p className="text-xs mb-2" style={{ color: "var(--yk-muted)" }}>Ссылка на твою витрину со всеми объявлениями:</p>
+        <p className="text-[10px] break-all p-2 rounded" style={{ background: "#fff", color: "var(--yk-muted2)" }}>{url}</p>
       </div>
     </div>
   );
@@ -2673,13 +2705,13 @@ function BulkUploadModal({ currentUser, profile, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Массовая загрузка</h2>
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <div className="p-5 flex flex-col gap-4">
-          <p className="text-xs" style={{ color: "#5B584E" }}>
+          <p className="text-xs" style={{ color: "var(--yk-muted2)" }}>
             CSV-файл с колонками: <b>title, price, category, city, condition, description, contact, quantity</b>.
             Категория — одно из: {CATEGORIES.map((c) => c.id).join(", ")}. Заголовки строк можно и на русском (название, цена, город, описание, контакт).
           </p>
@@ -2718,7 +2750,7 @@ function B2BTab({ listings, onOpenListing, onOpenCreate, onOpenBulk }) {
           <Briefcase size={20} color="#FFC93C" />
           <div>
             <p className="font-display font-bold text-white text-base">B2B-раздел</p>
-            <p className="text-[11px]" style={{ color: "#8B8677" }}>Только для оптовиков и перекупов</p>
+            <p className="text-[11px]" style={{ color: "var(--yk-muted)" }}>Только для оптовиков и перекупов</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -2732,12 +2764,12 @@ function B2BTab({ listings, onOpenListing, onOpenCreate, onOpenBulk }) {
       </div>
 
       <div className="relative mb-5">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8B8677" }} />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--yk-muted)" }} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по опту..." className="w-full pl-9 pr-3 py-2.5 rounded-lg text-sm border-2" style={{ borderColor: "#1C1F1B22" }} />
       </div>
 
       {wholesale.length === 0 ? (
-        <p className="text-center py-16 text-sm" style={{ color: "#8B8677" }}>Пока нет оптовых позиций — отметь объявление флажком «Только для оптовиков», когда создаёшь его</p>
+        <p className="text-center py-16 text-sm" style={{ color: "var(--yk-muted)" }}>Пока нет оптовых позиций — отметь объявление флажком «Только для оптовиков», когда создаёшь его</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {wholesale.map((l) => (
@@ -2774,9 +2806,9 @@ function EventsTab({ currentUser, profile, onRequireAuth }) {
         </button>
       </div>
       {loading ? (
-        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Загружаем...</p>
+        <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
       ) : events.length === 0 ? (
-        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Пока нет запланированных встреч — стань первым, кто организует</p>
+        <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Пока нет запланированных встреч — стань первым, кто организует</p>
       ) : (
         <div className="flex flex-col gap-3">
           {events.map((ev) => (
@@ -2787,7 +2819,7 @@ function EventsTab({ currentUser, profile, onRequireAuth }) {
                   {new Date(ev.event_date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
                 </span>
               </div>
-              <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><MapPin size={11} /> {ev.location}</p>
+              <p className="text-xs flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><MapPin size={11} /> {ev.location}</p>
             </button>
           ))}
         </div>
@@ -2840,7 +2872,7 @@ function CreateEventModal({ currentUser, profile, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">Новая барахолка</h2>
           <button onClick={onClose}><X size={20} /></button>
@@ -2894,14 +2926,14 @@ function EventDetailModal({ event, currentUser, profile, onClose, onRequireAuth 
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
           <h2 className="font-display font-bold text-base">{event.title}</h2>
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <div className="p-5 flex flex-col gap-4">
-          <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><Calendar size={13} /> {new Date(event.event_date).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</p>
-          <p className="text-xs flex items-center gap-1" style={{ color: "#5B584E" }}><MapPin size={13} /> {event.location}</p>
+          <p className="text-xs flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Calendar size={13} /> {new Date(event.event_date).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</p>
+          <p className="text-xs flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><MapPin size={13} /> {event.location}</p>
           {event.lat && event.lng && (
             <a href={`https://www.openstreetmap.org/?mlat=${event.lat}&mlon=${event.lng}&zoom=15`} target="_blank" rel="noreferrer" className="text-xs font-bold underline" style={{ color: "#2F6B4F" }}>Открыть точку на карте</a>
           )}
@@ -2923,15 +2955,15 @@ function EventDetailModal({ event, currentUser, profile, onClose, onRequireAuth 
           <div>
             <h3 className="font-display font-bold text-sm mb-2">Участники ({attendees.length})</h3>
             {loading ? (
-              <p className="text-xs" style={{ color: "#8B8677" }}>Загружаем...</p>
+              <p className="text-xs" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
             ) : attendees.length === 0 ? (
-              <p className="text-xs" style={{ color: "#8B8677" }}>Пока никто не отметился</p>
+              <p className="text-xs" style={{ color: "var(--yk-muted)" }}>Пока никто не отметился</p>
             ) : (
               <div className="flex flex-col gap-1.5">
                 {attendees.map((a) => (
                   <div key={a.ref} className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: "#fff" }}>
                     <span className="text-xs font-bold">{a.name}</span>
-                    {a.bringing && <span className="text-[11px]" style={{ color: "#8B8677" }}>{a.bringing}</span>}
+                    {a.bringing && <span className="text-[11px]" style={{ color: "var(--yk-muted)" }}>{a.bringing}</span>}
                   </div>
                 ))}
               </div>
@@ -2956,9 +2988,12 @@ function ChatsTab({ currentUser, onOpenChat, onOpenSupport }) {
     (async () => {
       if (!supabase) return;
       const { data } = await supabase.from("messages").select("*").or(`sender_ref.eq.${currentUser.ref},receiver_ref.eq.${currentUser.ref}`).order("created_at", { ascending: false });
+      const { data: blockRows } = await supabase.from("blocks").select("*").or(`blocker_ref.eq.${currentUser.ref},blocked_ref.eq.${currentUser.ref}`);
+      const blockedRefs = new Set((blockRows || []).flatMap((b) => [b.blocker_ref, b.blocked_ref]).filter((r) => r !== currentUser.ref));
       const map = new Map();
       (data || []).forEach((m) => {
         const otherRef = m.sender_ref === currentUser.ref ? m.receiver_ref : m.sender_ref;
+        if (blockedRefs.has(otherRef)) return;
         const key = conversationKey(m.listing_id, otherRef);
         if (!map.has(key)) {
           map.set(key, { listingId: m.listing_id, otherRef, otherName: m.sender_ref === currentUser.ref ? otherRef : (m.sender_name || otherRef), lastMessage: m.content, lastAt: m.created_at });
@@ -2978,9 +3013,9 @@ function ChatsTab({ currentUser, onOpenChat, onOpenSupport }) {
         </button>
       </div>
       {loading ? (
-        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Загружаем...</p>
+        <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
       ) : items.length === 0 ? (
-        <p className="text-center py-10 text-sm" style={{ color: "#8B8677" }}>Пока нет диалогов</p>
+        <p className="text-center py-10 text-sm" style={{ color: "var(--yk-muted)" }}>Пока нет диалогов</p>
       ) : (
         items.map((c) => (
           <button key={conversationKey(c.listingId, c.otherRef)} onClick={() => onOpenChat(c)} className="w-full text-left flex items-center gap-3 p-3 rounded-xl mb-1.5" style={{ background: "#fff", border: "2px solid #1C1F1B11" }}>
@@ -2989,12 +3024,43 @@ function ChatsTab({ currentUser, onOpenChat, onOpenSupport }) {
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-body font-bold text-sm truncate">{c.otherRef === SUPPORT_REF ? "Поддержка" : c.otherName}</p>
-              <p className="text-xs truncate" style={{ color: "#8B8677" }}>{c.lastMessage}</p>
+              <p className="text-xs truncate" style={{ color: "var(--yk-muted)" }}>{c.lastMessage}</p>
             </div>
-            <span className="text-[10px] flex-shrink-0" style={{ color: "#8B8677" }}>{timeAgo(c.lastAt)}</span>
+            <span className="text-[10px] flex-shrink-0" style={{ color: "var(--yk-muted)" }}>{timeAgo(c.lastAt)}</span>
           </button>
         ))
       )}
+    </div>
+  );
+}
+
+function RequisitesModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-6" style={{ background: "#F2EFE4" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-base">Реквизиты продавца</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="flex flex-col gap-3 text-sm">
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: "var(--yk-muted)" }}>ФИО</p>
+            <p className="font-bold">Садинов Таир Рустамович</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: "var(--yk-muted)" }}>ИНН</p>
+            <p className="font-mono font-bold">590430040542</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: "var(--yk-muted)" }}>Статус</p>
+            <p className="font-bold">Самозанятый (НПД)</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-bold" style={{ color: "var(--yk-muted)" }}>Email для связи</p>
+            <p className="font-bold">serafimburov1965@gmail.com</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3011,6 +3077,7 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   const roomKey = `call_${[currentUser.ref, otherRef].sort().join("_")}_${listingId || "support"}`;
   const [otherProfile, setOtherProfile] = useState(null);
   const [contextListing, setContextListing] = useState(null);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [deal, setDeal] = useState(null);
   const [showDealForm, setShowDealForm] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -3053,6 +3120,18 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
     if (!supabase || otherRef === SUPPORT_REF) return;
     supabase.from("profiles").select("auto_reply_enabled, auto_reply_text").eq("ref", otherRef).maybeSingle().then(({ data }) => setOtherProfile(data));
   }, [otherRef]);
+
+  useEffect(() => {
+    if (!supabase || otherRef === SUPPORT_REF) return;
+    supabase.from("blocks").select("*").or(`and(blocker_ref.eq.${currentUser.ref},blocked_ref.eq.${otherRef}),and(blocker_ref.eq.${otherRef},blocked_ref.eq.${currentUser.ref})`).then(({ data }) => {
+      setIsBlocked((data || []).length > 0);
+    });
+  }, [otherRef, currentUser.ref]);
+
+  async function blockUser() {
+    await supabase.from("blocks").insert({ blocker_ref: currentUser.ref, blocked_ref: otherRef });
+    setIsBlocked(true);
+  }
 
   useEffect(() => {
     if (!supabase || !listingId) return;
@@ -3103,6 +3182,39 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
     load();
   }
 
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          await supabase.from("messages").insert({ listing_id: listingId, sender_ref: currentUser.ref, receiver_ref: otherRef, sender_name: myName, content: "🎤 Голосовое сообщение", voice_url: reader.result });
+          load();
+        };
+        reader.readAsDataURL(blob);
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecording(true);
+    } catch {
+      setRecording(false);
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  }
+
   function startCall() {
     signalChannelRef.current?.send({ type: "broadcast", event: "call-request", payload: {} });
     setCallMode("caller");
@@ -3120,7 +3232,7 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
-      <div className="w-full sm:max-w-md h-[85vh] sm:h-[600px] rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden" style={{ background: "#F2EFE4" }}>
+      <div className="w-full sm:max-w-md h-[85vh] sm:h-[600px] rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
         <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ background: "#1C1F1B", borderColor: "#1C1F1B" }}>
           <button onClick={onClose}><ArrowLeft size={20} color="#F2EFE4" /></button>
           <button
@@ -3135,11 +3247,16 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
             className="flex-1 text-left"
           >
             <p className="font-body font-bold text-sm" style={{ color: "#F2EFE4" }}>{otherRef === SUPPORT_REF ? "Поддержка" : otherName}</p>
-            {otherRef !== SUPPORT_REF && <p className="text-[10px] underline" style={{ color: "#8B8677" }}>профиль продавца</p>}
+            {otherRef !== SUPPORT_REF && <p className="text-[10px] underline" style={{ color: "var(--yk-muted)" }}>профиль продавца</p>}
           </button>
-          {otherRef !== SUPPORT_REF && (
+          {otherRef !== SUPPORT_REF && !isBlocked && (
             <button onClick={startCall} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
               <Video size={15} color="#fff" />
+            </button>
+          )}
+          {otherRef !== SUPPORT_REF && !isBlocked && (
+            <button onClick={blockUser} title="Заблокировать" className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
+              <UserX size={14} color="#F2EFE4" />
             </button>
           )}
         </div>
@@ -3190,7 +3307,7 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
             )}
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold truncate">{contextListing.title}</p>
-              <p className="text-[10px]" style={{ color: "#8B8677" }}>Диалог по этому объявлению — открыть</p>
+              <p className="text-[10px]" style={{ color: "var(--yk-muted)" }}>Диалог по этому объявлению — открыть</p>
             </div>
           </button>
         )}
@@ -3207,25 +3324,34 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
           {loading ? (
-            <p className="text-center text-sm py-10" style={{ color: "#8B8677" }}>Загружаем...</p>
+            <p className="text-center text-sm py-10" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
           ) : messages.length === 0 ? (
-            <p className="text-center text-sm py-10" style={{ color: "#8B8677" }}>{otherRef === SUPPORT_REF ? "Напиши, если что-то не работает или есть вопрос" : "Начни диалог с продавцом"}</p>
+            <p className="text-center text-sm py-10" style={{ color: "var(--yk-muted)" }}>{otherRef === SUPPORT_REF ? "Напиши, если что-то не работает или есть вопрос" : "Начни диалог с продавцом"}</p>
           ) : (
             messages.map((m) => {
               const mine = m.sender_ref === currentUser.ref;
               return (
                 <div key={m.id} className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm font-body ${mine ? "self-end" : "self-start"}`} style={{ background: mine ? "#2F6B4F" : "#fff", color: mine ? "#fff" : "#1C1F1B" }}>
-                  {m.content}
+                  {m.voice_url ? <audio controls src={m.voice_url} className="h-9" style={{ maxWidth: 200 }} /> : m.content}
                 </div>
               );
             })
           )}
         </div>
         <div className="p-3 border-t flex gap-2" style={{ borderColor: "#1C1F1B22" }}>
-          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Написать сообщение..." className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none border-2" style={{ borderColor: "#1C1F1B22" }} />
-          <button onClick={send} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
-            <Send size={16} color="#fff" />
-          </button>
+          {isBlocked ? (
+            <p className="flex-1 text-center text-xs font-bold py-2.5" style={{ color: "#8B8677" }}>Общение с этим пользователем недоступно</p>
+          ) : (
+            <>
+              <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Написать сообщение..." className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none border-2" style={{ borderColor: "#1C1F1B22" }} />
+              <button onClick={recording ? stopRecording : startRecording} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: recording ? "#E1543D" : "#3A3D37" }}>
+                {recording ? <Square size={14} color="#fff" fill="#fff" /> : <Mic size={16} color="#fff" />}
+              </button>
+              <button onClick={send} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
+                <Send size={16} color="#fff" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
