@@ -1,9 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
-import L from "leaflet";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import {
   Search, Plus, X, MapPin, Phone, Smartphone, Wrench, Car,
   Shirt, Home, Gamepad2, Package, Check, Tag, ImagePlus,
@@ -18,9 +13,6 @@ import Papa from "papaparse";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "./supabaseClient";
 import { initTelegram, getTelegramUser, getStartParam } from "./telegram";
-
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
 const MAX_PHOTOS = 5;
 const FREE_LISTINGS_LIMIT = 5;
@@ -173,6 +165,36 @@ function relevanceScore(listing, query) {
   return score;
 }
 
+function formatResponseTime(seconds) {
+  if (seconds < 3600) return `за ${Math.max(1, Math.round(seconds / 60))} мин`;
+  if (seconds < 86400) return `за ${Math.round(seconds / 3600)} ч`;
+  return `за ${Math.round(seconds / 86400)} дн`;
+}
+
+function LiveViewers({ listingId, currentUserRef }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const key = currentUserRef || `guest_${Math.random().toString(36).slice(2, 9)}`;
+    const channel = supabase.channel(`viewers:${listingId}`, { config: { presence: { key } } });
+    channel.on("presence", { event: "sync" }, () => {
+      setCount(Object.keys(channel.presenceState()).length);
+    });
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") await channel.track({ at: Date.now() });
+    });
+    return () => { supabase.removeChannel(channel); };
+  }, [listingId, currentUserRef]);
+
+  if (count < 2) return null;
+  return (
+    <p className="text-[11px] flex items-center gap-1" style={{ color: "#E1543D" }}>
+      👀 Сейчас смотрят {count} человек{count >= 5 ? "" : count >= 2 && count < 5 ? "а" : ""}
+    </p>
+  );
+}
+
 function isProActive(profile) {
   if (!profile) return false;
   const active = profile.subscription_until && new Date(profile.subscription_until) > new Date();
@@ -182,6 +204,14 @@ function isBusinessActive(profile) {
   if (!profile) return false;
   const active = profile.subscription_until && new Date(profile.subscription_until) > new Date();
   return active && profile.subscription_tier === "business";
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function App() {
@@ -197,7 +227,9 @@ export default function App() {
   const [barterOnly, setBarterOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [boardMode, setBoardMode] = useState("sell"); // sell | want
-  const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc
+  const [sortBy, setSortBy] = useState("newest"); // newest | price_asc | price_desc | nearby
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationError, setLocationError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [repostSource, setRepostSource] = useState(null);
   const [editListing, setEditListing] = useState(null);
@@ -387,6 +419,15 @@ export default function App() {
     localStorage.setItem("yarmarka_dark", darkMode ? "1" : "0");
   }, [darkMode]);
 
+  useEffect(() => {
+    if (!currentUser || !profile || !supabase) return;
+    supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("ref", currentUser.ref).then(() => {});
+    const interval = setInterval(() => {
+      supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("ref", currentUser.ref).then(() => {});
+    }, 4 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [currentUser, profile?.ref]);
+
   function requireAuth() {
     if (!currentUser) {
       setShowAuth(true);
@@ -499,6 +540,14 @@ export default function App() {
     setTab("feed");
   }
 
+  function requestNearby() {
+    if (!navigator.geolocation) { setLocationError("Геолокация не поддерживается"); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setSortBy("nearby"); setLocationError(""); },
+      () => setLocationError("Не удалось определить местоположение")
+    );
+  }
+
   const filtered = useMemo(() => {
     let list = listings
       .filter((l) => !l.publish_at || new Date(l.publish_at) <= new Date() || l.author_ref === currentUser?.ref)
@@ -522,6 +571,12 @@ export default function App() {
       list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
     } else if (sortBy === "price_desc") {
       list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
+    } else if (sortBy === "nearby" && userLocation) {
+      list = [...list].sort((a, b) => {
+        const da = a.lat && a.lng ? haversineKm(userLocation.lat, userLocation.lng, a.lat, a.lng) : Infinity;
+        const db = b.lat && b.lng ? haversineKm(userLocation.lat, userLocation.lng, b.lat, b.lng) : Infinity;
+        return da - db;
+      });
     } else {
       list = [...list].sort((a, b) => {
         const aBumped = a.bumped_at && new Date(a.bumped_at) > new Date(Date.now() - 7 * 86400000) ? new Date(a.bumped_at).getTime() : 0;
@@ -532,9 +587,21 @@ export default function App() {
       });
     }
     return list;
-  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly, currentUser]);
+  }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly, currentUser, userLocation]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
+
+  const featuredListings = useMemo(() => {
+    return listings
+      .filter((l) => (l.post_type || "sell") === "sell" && !l.wholesale_only && l.images?.length > 0)
+      .map((l) => ({
+        l,
+        score: (l.promoted_until && new Date(l.promoted_until) > new Date() ? 1000 : 0) + (l.bumped_at && new Date(l.bumped_at) > new Date(Date.now() - 7 * 86400000) ? 500 : 0) + new Date(l.created_at).getTime() / 1e10,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map((x) => x.l);
+  }, [listings]);
 
   const recommendedListings = useMemo(() => {
     if (!currentUser) return [];
@@ -580,28 +647,6 @@ export default function App() {
             </button>
           </div>
         </div>
-        {tab === "feed" && (
-          <>
-            <div className="max-w-6xl mx-auto px-4 pt-2 flex gap-2">
-              {[["sell", "Продают"], ["want", "Ищут"]].map(([val, label]) => (
-                <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border transition active:scale-95"
-                  style={boardMode === val ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "#F2EFE4", borderColor: "#3A3D37" }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
-              <CategorySwiper
-                activeCat={activeCat}
-                freeOnly={freeOnly}
-                onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
-              />
-              <button onClick={() => setShowFilters(true)} className="yk-btn flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold flex-shrink-0 border-2" style={{ background: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#FFC93C" : "transparent", borderColor: "#FFC93C", color: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#1C1F1B" : "#FFC93C" }}>
-                <SlidersHorizontal size={13} /> Фильтры
-              </button>
-            </div>
-          </>
-        )}
       </header>
 
       {needsRegistration ? (
@@ -610,7 +655,28 @@ export default function App() {
         <>
           {tab === "feed" && (
             <>
-              <div className="max-w-6xl mx-auto px-4 pt-6 pb-2">
+              <div className="max-w-6xl mx-auto px-4 pt-3 flex gap-2">
+                {[["sell", "Продают"], ["want", "Ищут"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border transition active:scale-95"
+                    style={boardMode === val ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "var(--yk-text)", borderColor: "#8B867755" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2">
+                <CategorySwiper
+                  activeCat={activeCat}
+                  freeOnly={freeOnly}
+                  onSelect={(id) => { if (id === "free") { setFreeOnly(!freeOnly); } else { setActiveCat(id); setFreeOnly(false); } }}
+                />
+                <button onClick={() => setShowFilters(true)} className="yk-btn flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold flex-shrink-0 border-2" style={{ background: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#FFC93C" : "transparent", borderColor: "#FFC93C", color: (priceMax || priceMin || cityFilter !== "all" || conditionFilter !== "all" || barterOnly || sortBy !== "newest") ? "#1C1F1B" : "#FFC93C" }}>
+                  <SlidersHorizontal size={13} /> Фильтры
+                </button>
+              </div>
+              {featuredListings.length > 0 && activeCat === "all" && !freeOnly && !search.trim() && boardMode === "sell" && (
+                <FeaturedCarousel listings={featuredListings} onOpen={(l) => setShowDetail(l)} />
+              )}
+              <div className="max-w-6xl mx-auto px-4 pt-3 pb-2">
                 <div className="yk-gradient-green yk-shine rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3">
                   <p className="font-display font-bold text-white text-base md:text-lg leading-snug">Безлимит объявлений. Всегда бесплатно.</p>
                   <span className="animate-pulseglow font-mono text-xs font-bold px-3 py-1.5 rounded-full rotate-[-4deg]" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
@@ -717,6 +783,7 @@ export default function App() {
           isPro={isProActive(profile)}
           onOpenSubscribe={() => setShowSubscribe(true)}
           initial={repostSource}
+          allListings={listings}
         />
       )}
 
@@ -730,6 +797,7 @@ export default function App() {
           isWholesaler={isBusinessActive(profile)}
           isPro={isProActive(profile)}
           onOpenSubscribe={() => setShowSubscribe(true)}
+          allListings={listings}
         />
       )}
 
@@ -772,6 +840,8 @@ export default function App() {
           sortBy={sortBy} setSortBy={setSortBy}
           onSave={currentUser ? saveCurrentSearch : null}
           onClose={() => setShowFilters(false)}
+          onRequestNearby={requestNearby}
+          locationError={locationError}
         />
       )}
 
@@ -906,7 +976,7 @@ function LoggedOutPrompt({ onLogin, text }) {
   );
 }
 
-function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter, setCityFilter, conditionFilter, setConditionFilter, barterOnly, setBarterOnly, sortBy, setSortBy, onSave, onClose }) {
+function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter, setCityFilter, conditionFilter, setConditionFilter, barterOnly, setBarterOnly, sortBy, setSortBy, onSave, onClose, onRequestNearby, locationError }) {
   function reset() {
     setPriceMin(null); setPriceMax(null); setCityFilter("all"); setConditionFilter("all"); setBarterOnly(false); setSortBy("newest");
   }
@@ -920,11 +990,13 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
         </div>
         <div className="p-5 flex flex-col gap-4">
           <Field label="Сортировка">
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="input">
+            <select value={sortBy} onChange={(e) => e.target.value === "nearby" ? onRequestNearby() : setSortBy(e.target.value)} className="input">
               <option value="newest">Сначала новые</option>
               <option value="price_asc">Сначала дешевле</option>
               <option value="price_desc">Сначала дороже</option>
+              <option value="nearby">📍 Рядом со мной</option>
             </select>
+            {locationError && <p className="text-[11px] font-bold mt-1" style={{ color: "#E1543D" }}>{locationError}</p>}
           </Field>
 
           <Field label="Город">
@@ -976,6 +1048,38 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
   );
 }
 
+function FeaturedCarousel({ listings, onOpen }) {
+  return (
+    <div className="pt-3">
+      <div className="flex overflow-x-auto gap-0" style={{ scrollSnapType: "x mandatory" }}>
+        {listings.map((l) => {
+          const isFree = Number(l.price) === 0;
+          return (
+            <button
+              key={l.id}
+              onClick={() => onOpen(l)}
+              className="relative flex-shrink-0 w-[88vw] sm:w-[420px] aspect-[16/10] mx-2 rounded-2xl overflow-hidden"
+              style={{ scrollSnapAlign: "center" }}
+            >
+              <img src={l.images[0]} alt={l.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, transparent 40%, #1C1F1BEE 100%)" }} />
+              <div className="absolute bottom-0 left-0 right-0 p-4 text-left">
+                <p className="font-display font-bold text-white text-base line-clamp-1 mb-1">{l.title}</p>
+                <p className="font-mono font-black text-xl" style={{ color: "#FFC93C" }}>{isFree ? "Даром" : `${Number(l.price).toLocaleString("ru-RU")} ₽`}</p>
+              </div>
+              {l.promoted_until && new Date(l.promoted_until) > new Date() && (
+                <span className="absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1" style={{ background: "#E1543D", color: "#fff" }}>
+                  <Sparkles size={10} /> Рекомендуем
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CategorySwiper({ activeCat, freeOnly, onSelect }) {
   const scrollRef = useRef(null);
   const items = [{ id: "all", label: "Всё", icon: null, color: "#FFC93C" }, { id: "free", label: "Даром", icon: null, color: "#E1543D" }, ...CATEGORIES];
@@ -986,8 +1090,8 @@ function CategorySwiper({ activeCat, freeOnly, onSelect }) {
 
   return (
     <div className="relative flex-1 min-w-0 flex items-center gap-1">
-      <button onClick={() => scrollBy(-1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
-        <ChevronLeft size={13} color="#F2EFE4" />
+      <button onClick={() => scrollBy(-1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#1C1F1B22" }}>
+        <ChevronLeft size={13} color="var(--yk-text)" />
       </button>
       <div ref={scrollRef} className="flex-1 flex gap-2 overflow-x-auto" style={{ scrollSnapType: "x mandatory", scrollBehavior: "smooth" }}>
         {items.map((it) => {
@@ -1001,8 +1105,8 @@ function CategorySwiper({ activeCat, freeOnly, onSelect }) {
               style={{
                 scrollSnapAlign: "start",
                 background: isActive ? it.color : "transparent",
-                color: isActive ? "#1C1F1B" : "#F2EFE4",
-                borderColor: isActive ? it.color : "#3A3D37",
+                color: isActive ? "#1C1F1B" : "var(--yk-text)",
+                borderColor: isActive ? it.color : "#8B867755",
                 boxShadow: isActive ? `0 4px 14px -2px ${it.color}99` : "none",
                 minWidth: 64,
               }}
@@ -1013,27 +1117,9 @@ function CategorySwiper({ activeCat, freeOnly, onSelect }) {
           );
         })}
       </div>
-      <button onClick={() => scrollBy(1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#3A3D37" }}>
-        <ChevronRight size={13} color="#F2EFE4" />
+      <button onClick={() => scrollBy(1)} className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center flex-shrink-0" style={{ background: "#1C1F1B22" }}>
+        <ChevronRight size={13} color="var(--yk-text)" />
       </button>
-    </div>
-  );
-}
-
-function MapClickHandler({ onPick }) {
-  useMapEvents({ click(e) { onPick(e.latlng.lat, e.latlng.lng); } });
-  return null;
-}
-
-function LocationPicker({ lat, lng, onChange }) {
-  const center = lat && lng ? [lat, lng] : [55.751244, 37.618423];
-  return (
-    <div className="rounded-lg overflow-hidden border-2" style={{ borderColor: "#1C1F1B22", height: 220 }}>
-      <MapContainer center={center} zoom={lat ? 13 : 4} style={{ height: "100%", width: "100%" }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-        {lat && lng && <Marker position={[lat, lng]} />}
-        <MapClickHandler onPick={onChange} />
-      </MapContainer>
     </div>
   );
 }
@@ -1198,7 +1284,7 @@ function EmptyState({ onCreate, hasAny }) {
   );
 }
 
-function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler, isPro, onOpenSubscribe }) {
+function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler, isPro, onOpenSubscribe, allListings }) {
   const isEdit = mode === "edit";
   const [postType, setPostType] = useState(initial?.post_type || "sell");
   const [title, setTitle] = useState(initial?.title || "");
@@ -1209,7 +1295,6 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
   const [address, setAddress] = useState(initial?.address || "");
   const [lat, setLat] = useState(initial?.lat || null);
   const [lng, setLng] = useState(initial?.lng || null);
-  const [showMap, setShowMap] = useState(false);
   const [condition, setCondition] = useState(initial?.condition || "used");
   const [description, setDescription] = useState(initial?.description || "");
   const [contact, setContact] = useState(initial?.contact || "");
@@ -1227,6 +1312,14 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
   const [error, setError] = useState("");
 
   const maxPhotos = isPro ? 10 : MAX_PHOTOS;
+
+  const marketHint = useMemo(() => {
+    if (!allListings || !category) return null;
+    const same = allListings.filter((l) => l.category === category && Number(l.price) > 0 && l.id !== initial?.id);
+    if (same.length < 2) return null;
+    const avg = same.reduce((s, l) => s + Number(l.price), 0) / same.length;
+    return Math.round(avg / 10) * 10;
+  }, [allListings, category, initial]);
 
   async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -1321,7 +1414,10 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                 )}
               </div>
             </Field>
-            <Field label="Цена, ₽ (0 = даром)"><input value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" inputMode="numeric" className="input font-mono" /></Field>
+            <Field label="Цена, ₽ (0 = даром)">
+              <input value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" inputMode="numeric" className="input font-mono" />
+              {marketHint && <p className="text-[11px] mt-1" style={{ color: "var(--yk-muted)" }}>Похожие товары продают в среднем за {marketHint.toLocaleString("ru-RU")} ₽</p>}
+            </Field>
             <Field label="Количество в наличии (необязательно)">
               <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value.replace(/[^0-9]/g, ""))} placeholder="Оставь пустым, если товар один" inputMode="numeric" className="input font-mono" />
             </Field>
@@ -1348,10 +1444,20 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
             <Field label="Адрес / район (необязательно)">
               <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Например: ул. Ленина, район Центр" className="input" />
             </Field>
-            <button type="button" onClick={() => setShowMap(!showMap)} className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#2F6B4F" }}>
-              <MapPin size={13} /> {showMap ? "Скрыть карту" : lat ? "Точка отмечена на карте — изменить" : "Отметить точку на карте"}
+            <button
+              type="button"
+              onClick={() => {
+                if (!navigator.geolocation) return;
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => { setLat(pos.coords.latitude); setLng(pos.coords.longitude); },
+                  () => {}
+                );
+              }}
+              className="text-xs font-bold flex items-center gap-1.5"
+              style={{ color: lat ? "#2F6B4F" : "var(--yk-muted)" }}
+            >
+              <MapPin size={13} /> {lat ? "Место сохранено — обновить" : "Использовать моё текущее местоположение"}
             </button>
-            {showMap && <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />}
             <Field label="Состояние">
               <div className="flex gap-2">
                 {[["new", "Новое"], ["used", "Б/у"]].map(([val, label]) => (
@@ -1452,6 +1558,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
   const viewedRef = useRef(false);
 
   const [reservedUntil, setReservedUntil] = useState(listing.reserved_until);
+  const [eligibleDealId, setEligibleDealId] = useState(null);
+  const [contactRevealed, setContactRevealed] = useState(false);
+  const [sellerMeta, setSellerMeta] = useState(null);
   const isReserved = reservedUntil && new Date(reservedUntil) > new Date();
 
   async function reserve() {
@@ -1469,6 +1578,17 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
     }
     if (listing.author_ref) {
       supabase.from("reviews").select("*").eq("seller_ref", listing.author_ref).order("created_at", { ascending: false }).then(({ data }) => setReviews(data || []));
+      supabase.from("profiles").select("last_active_at, avg_response_seconds").eq("ref", listing.author_ref).maybeSingle().then(({ data }) => setSellerMeta(data));
+    }
+    if (currentUser && listing.author_ref && currentUser.ref !== listing.author_ref) {
+      supabase.from("deals").select("*").eq("listing_id", listing.id).eq("buyer_ref", currentUser.ref).eq("seller_ref", listing.author_ref).eq("status", "confirmed").then(async ({ data: dealsData }) => {
+        const confirmedDeals = dealsData || [];
+        if (confirmedDeals.length === 0) return;
+        const { data: myReviews } = await supabase.from("reviews").select("deal_id").eq("reviewer_ref", currentUser.ref).in("deal_id", confirmedDeals.map((d) => d.id));
+        const reviewedDealIds = new Set((myReviews || []).map((r) => r.deal_id));
+        const available = confirmedDeals.find((d) => !reviewedDealIds.has(d.id));
+        if (available) setEligibleDealId(available.id);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1554,7 +1674,12 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
             <span>{catLabel(listing.category)}</span>
             <span>{listing.condition === "new" ? "Новое" : "Б/у"}</span>
             <span className="flex items-center gap-1"><Eye size={13} /> {listing.views || 0}</span>
+            {(listing.views || 0) >= 20 && new Date(listing.created_at) > new Date(Date.now() - 3 * 86400000) && (
+              <span className="flex items-center gap-1" style={{ color: "#E1543D" }}>🔥 Популярно</span>
+            )}
           </div>
+
+          <LiveViewers listingId={listing.id} currentUserRef={currentUser?.ref} />
 
           <div className="flex items-center gap-2 flex-wrap">
             {listing.barter && (
@@ -1587,12 +1712,23 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
           {listing.description && <p className="text-sm font-body leading-relaxed">{listing.description}</p>}
           <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: "#E8E3D2" }}>
             <Phone size={16} style={{ color: "#2F6B4F" }} />
-            <span className="font-mono font-bold text-sm">{listing.contact}</span>
+            {contactRevealed || isOwner ? (
+              <span className="font-mono font-bold text-sm">{listing.contact}</span>
+            ) : (
+              <button onClick={() => setContactRevealed(true)} className="font-body font-bold text-sm underline" style={{ color: "#2F6B4F" }}>
+                Показать контакт
+              </button>
+            )}
           </div>
 
           {listing.author_name && (
-            <div className="flex items-center justify-between">
-              <button onClick={() => setShowSeller(true)} className="text-xs underline" style={{ color: "var(--yk-muted)" }}>Продавец: {listing.author_name}</button>
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <button onClick={() => setShowSeller(true)} className="text-xs underline flex items-center gap-1.5" style={{ color: "var(--yk-muted)" }}>
+                Продавец: {listing.author_name}
+                {sellerMeta?.last_active_at && new Date(sellerMeta.last_active_at) > new Date(Date.now() - 10 * 60000) && (
+                  <span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4EBE6C" }} title="Онлайн" />
+                )}
+              </button>
               <div className="flex items-center gap-1.5">
                 {reviews.length > 0 ? (
                   <>
@@ -1604,6 +1740,12 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
                 )}
               </div>
             </div>
+          )}
+
+          {sellerMeta?.avg_response_seconds && (
+            <p className="text-[11px]" style={{ color: "var(--yk-muted)" }}>
+              Обычно отвечает {formatResponseTime(sellerMeta.avg_response_seconds)}
+            </p>
           )}
 
           {!isOwner && (
@@ -1622,13 +1764,22 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
                 </button>
               )}
               <div className="flex gap-2">
-                <button onClick={() => (requireAuth() ? setShowReview(true) : null)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22" }}>
+                <button
+                  onClick={() => eligibleDealId && requireAuth() && setShowReview(true)}
+                  disabled={!eligibleDealId}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2 disabled:opacity-50"
+                  style={{ borderColor: "#1C1F1B22" }}
+                  title={eligibleDealId ? "Оставить отзыв" : "Доступно только после завершённой сделки (код подтверждения)"}
+                >
                   <Star size={13} /> Оставить отзыв
                 </button>
                 <button onClick={() => setShowReport(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-body font-bold text-xs border-2" style={{ borderColor: "#1C1F1B22", color: "#E1543D" }}>
                   <Flag size={13} /> Пожаловаться
                 </button>
               </div>
+              {!eligibleDealId && (
+                <p className="text-[10px] text-center" style={{ color: "var(--yk-muted)" }}>Отзыв откроется после завершённой сделки — так отзывы нельзя накрутить</p>
+              )}
             </>
           )}
 
@@ -1686,8 +1837,9 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
         <ReviewModal
           sellerRef={listing.author_ref}
           reviewerRef={currentUser.ref}
+          dealId={eligibleDealId}
           onClose={() => setShowReview(false)}
-          onSaved={(r) => { setReviews((prev) => [r, ...prev]); setShowReview(false); }}
+          onSaved={(r) => { setReviews((prev) => [r, ...prev]); setEligibleDealId(null); setShowReview(false); }}
         />
       )}
       {showReport && (
@@ -1711,22 +1863,29 @@ function DetailModal({ listing, currentUser, isOwner, isFavorite, onToggleFavori
 
 function SwipeGallery({ images, activeImg, setActiveImg, tint, onOpenFullscreen }) {
   const scrollRef = useRef(null);
-  const isScrollingRef = useRef(false);
+  const programmaticRef = useRef(false);
+  const settleTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (isScrollingRef.current) return;
     const el = scrollRef.current;
-    if (el) el.scrollTo({ left: activeImg * el.clientWidth, behavior: "smooth" });
+    if (!el) return;
+    const target = activeImg * el.clientWidth;
+    if (Math.abs(el.scrollLeft - target) > 2) {
+      programmaticRef.current = true;
+      el.scrollTo({ left: target, behavior: "smooth" });
+      setTimeout(() => { programmaticRef.current = false; }, 400);
+    }
   }, [activeImg]);
 
   function handleScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    isScrollingRef.current = true;
-    const idx = Math.round(el.scrollLeft / el.clientWidth);
-    setActiveImg(idx);
-    clearTimeout(handleScroll._t);
-    handleScroll._t = setTimeout(() => { isScrollingRef.current = false; }, 150);
+    if (programmaticRef.current) return;
+    clearTimeout(settleTimeoutRef.current);
+    settleTimeoutRef.current = setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const idx = Math.round(el.scrollLeft / el.clientWidth);
+      setActiveImg(idx);
+    }, 100);
   }
 
   return (
@@ -1748,7 +1907,6 @@ function SwipeGallery({ images, activeImg, setActiveImg, tint, onOpenFullscreen 
 function FullscreenGallery({ images, startIndex, onClose }) {
   const [idx, setIdx] = useState(startIndex);
   const scrollRef = useRef(null);
-  const isScrollingRef = useRef(false);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1759,10 +1917,10 @@ function FullscreenGallery({ images, startIndex, onClose }) {
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    isScrollingRef.current = true;
-    setIdx(Math.round(el.scrollLeft / el.clientWidth));
     clearTimeout(handleScroll._t);
-    handleScroll._t = setTimeout(() => { isScrollingRef.current = false; }, 150);
+    handleScroll._t = setTimeout(() => {
+      setIdx(Math.round(el.scrollLeft / el.clientWidth));
+    }, 80);
   }
 
   function go(delta) {
@@ -1883,7 +2041,7 @@ function QRModal({ listing, onClose }) {
   );
 }
 
-function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
+function ReviewModal({ sellerRef, reviewerRef, dealId, onClose, onSaved }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1894,7 +2052,7 @@ function ReviewModal({ sellerRef, reviewerRef, onClose, onSaved }) {
     if (!sellerRef) { setError("У этого объявления нет привязанного продавца — отзыв оставить нельзя"); return; }
     setBusy(true);
     setError("");
-    const { data, error } = await supabase.from("reviews").insert({ seller_ref: sellerRef, reviewer_ref: reviewerRef, rating, comment: comment.trim() }).select().single();
+    const { data, error } = await supabase.from("reviews").insert({ seller_ref: sellerRef, reviewer_ref: reviewerRef, deal_id: dealId, rating, comment: comment.trim() }).select().single();
     setBusy(false);
     if (error) { setError("Не получилось отправить: " + error.message); return; }
     onSaved(data);
@@ -2414,6 +2572,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
   const [stats, setStats] = useState(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [dealsCount, setDealsCount] = useState(0);
+  const [cancelledCount, setCancelledCount] = useState(0);
   const isVip = isProActive(profile) || (profile.vip_until && new Date(profile.vip_until) > new Date());
 
   const completeness = useMemo(() => {
@@ -2439,6 +2598,7 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
     if (!supabase) return;
     supabase.from("reviews").select("*", { count: "exact", head: true }).eq("seller_ref", currentUser.ref).then(({ count }) => setReviewCount(count || 0));
     supabase.from("deals").select("*", { count: "exact", head: true }).or(`buyer_ref.eq.${currentUser.ref},seller_ref.eq.${currentUser.ref}`).eq("status", "confirmed").then(({ count }) => setDealsCount(count || 0));
+    supabase.from("deals").select("*", { count: "exact", head: true }).or(`buyer_ref.eq.${currentUser.ref},seller_ref.eq.${currentUser.ref}`).eq("status", "cancelled").then(({ count }) => setCancelledCount(count || 0));
   }, [currentUser.ref]);
 
   useEffect(() => {
@@ -2528,6 +2688,12 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
             <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}><KeyRound size={11} /> Сделок завершено</p>
             <p className="font-mono font-bold text-lg">{dealsCount}</p>
           </div>
+          {cancelledCount > 0 && (
+            <div className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+              <p className="text-[10px] font-bold flex items-center gap-1 mb-1" style={{ color: "var(--yk-muted)" }}>Отменено сделок</p>
+              <p className="font-mono font-bold text-lg">{cancelledCount}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -2614,6 +2780,11 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
                 <span className="absolute top-3 left-3 z-10 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: "#4EA5D9", color: "#fff" }}>
                   <Calendar size={10} /> {new Date(l.publish_at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </span>
+              )}
+              {(!l.views || l.views === 0) && new Date(l.created_at) < new Date(Date.now() - 5 * 86400000) && (
+                <div className="mt-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1" style={{ background: "#F2E0DD", color: "#E1543D" }}>
+                  <Eye size={11} /> 0 просмотров за 5+ дней — попробуй снизить цену или обновить фото
+                </div>
               )}
             </div>
           ))}
@@ -2850,9 +3021,6 @@ function CreateEventModal({ currentUser, profile, onClose, onCreated }) {
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
-  const [lat, setLat] = useState(null);
-  const [lng, setLng] = useState(null);
-  const [showMap, setShowMap] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -2862,7 +3030,7 @@ function CreateEventModal({ currentUser, profile, onClose, onCreated }) {
     setError("");
     const { error } = await supabase.from("events").insert({
       title: title.trim(), description: description.trim(), location: location.trim(),
-      event_date: new Date(date).toISOString(), lat, lng,
+      event_date: new Date(date).toISOString(),
       creator_ref: currentUser.ref, creator_name: profile.name,
     });
     setBusy(false);
@@ -2881,10 +3049,6 @@ function CreateEventModal({ currentUser, profile, onClose, onCreated }) {
           <Field label="Название"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например: Барахолка в парке Горького" className="input" /></Field>
           <Field label="Место"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Адрес или ориентир" className="input" /></Field>
           <Field label="Дата и время"><input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} className="input" /></Field>
-          <button type="button" onClick={() => setShowMap(!showMap)} className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#2F6B4F" }}>
-            <MapPin size={13} /> {showMap ? "Скрыть карту" : "Отметить точку на карте"}
-          </button>
-          {showMap && <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />}
           <Field label="Описание"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Что за встреча, что можно принести продавать" className="input resize-none" /></Field>
           {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
           <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
@@ -3116,6 +3280,11 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
     setDeal(data);
   }
 
+  async function cancelDeal() {
+    const { data } = await supabase.from("deals").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", deal.id).select().single();
+    setDeal(data);
+  }
+
   useEffect(() => {
     if (!supabase || otherRef === SUPPORT_REF) return;
     supabase.from("profiles").select("auto_reply_enabled, auto_reply_text").eq("ref", otherRef).maybeSingle().then(({ data }) => setOtherProfile(data));
@@ -3169,12 +3338,40 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  const [showOfferForm, setShowOfferForm] = useState(false);
+  const [offerAmount, setOfferAmount] = useState("");
+
+  async function sendOffer() {
+    const amount = Number(offerAmount);
+    if (!amount || amount <= 0) return;
+    await supabase.from("messages").insert({ listing_id: listingId, sender_ref: currentUser.ref, receiver_ref: otherRef, sender_name: myName, content: `Предложил(а) ${amount.toLocaleString("ru-RU")} ₽`, offer_amount: amount, offer_status: "pending" });
+    setOfferAmount("");
+    setShowOfferForm(false);
+    load();
+  }
+
+  async function respondToOffer(messageId, accept) {
+    await supabase.from("messages").update({ offer_status: accept ? "accepted" : "declined" }).eq("id", messageId);
+    load();
+  }
+
   async function send() {
     if (!text.trim() || !supabase) return;
     const content = text.trim();
     const wasEmpty = messages.length === 0;
+    const lastMsg = messages[messages.length - 1];
     setText("");
     await supabase.from("messages").insert({ listing_id: listingId, sender_ref: currentUser.ref, receiver_ref: otherRef, sender_name: myName, content });
+    if (lastMsg && lastMsg.sender_ref === otherRef) {
+      const deltaSeconds = (Date.now() - new Date(lastMsg.created_at).getTime()) / 1000;
+      if (deltaSeconds > 0 && deltaSeconds < 3 * 86400) {
+        const { data: prof } = await supabase.from("profiles").select("avg_response_seconds, response_samples").eq("ref", currentUser.ref).maybeSingle();
+        const prevAvg = prof?.avg_response_seconds || deltaSeconds;
+        const prevSamples = prof?.response_samples || 0;
+        const newAvg = (prevAvg * prevSamples + deltaSeconds) / (prevSamples + 1);
+        await supabase.from("profiles").update({ avg_response_seconds: newAvg, response_samples: prevSamples + 1 }).eq("ref", currentUser.ref);
+      }
+    }
     if (wasEmpty && !autoRepliedRef.current && otherProfile?.auto_reply_enabled && otherProfile?.auto_reply_text) {
       autoRepliedRef.current = true;
       await supabase.from("messages").insert({ listing_id: listingId, sender_ref: otherRef, receiver_ref: currentUser.ref, sender_name: otherName, content: otherProfile.auto_reply_text });
@@ -3183,18 +3380,35 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
   }
 
   const [recording, setRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
+  function pickMimeType() {
+    const candidates = ["audio/mp4", "audio/webm", "audio/aac", "audio/ogg"];
+    for (const type of candidates) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) return type;
+    }
+    return "";
+  }
+
   async function startRecording() {
+    setVoiceError("");
+    if (!window.MediaRecorder) {
+      setVoiceError("Запись голоса не поддерживается этим браузером");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mimeType = pickMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onerror = () => setVoiceError("Ошибка записи");
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (chunksRef.current.length === 0) { setVoiceError("Запись получилась пустой, попробуй ещё раз"); return; }
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         const reader = new FileReader();
         reader.onloadend = async () => {
           await supabase.from("messages").insert({ listing_id: listingId, sender_ref: currentUser.ref, receiver_ref: otherRef, sender_name: myName, content: "🎤 Голосовое сообщение", voice_url: reader.result });
@@ -3205,8 +3419,10 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
       recorder.start();
       mediaRecorderRef.current = recorder;
       setRecording(true);
-    } catch {
+    } catch (err) {
       setRecording(false);
+      if (err.name === "NotAllowedError") setVoiceError("Нет доступа к микрофону — разреши его в настройках");
+      else setVoiceError("Не получилось начать запись");
     }
   }
 
@@ -3261,7 +3477,7 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
           )}
         </div>
 
-        {contextListing && !deal && (
+        {contextListing && (!deal || deal.status === "cancelled") && (
           <div className="px-4 py-2 border-b" style={{ background: "#E8E3D2", borderColor: "#1C1F1B22" }}>
             <button onClick={startDeal} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg font-body font-bold text-xs" style={{ background: "#1C1F1B", color: "#F2EFE4" }}>
               <KeyRound size={13} /> Оформить безопасную сделку
@@ -3286,6 +3502,13 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
                 <p className="font-mono font-black text-2xl" style={{ color: "#1C1F1B" }}>{deal.code}</p>
               </>
             )}
+            <button onClick={cancelDeal} className="text-[11px] font-bold underline mt-2" style={{ color: "#1C1F1B" }}>Встреча не состоялась — отменить сделку</button>
+          </div>
+        )}
+
+        {deal && deal.status === "cancelled" && (
+          <div className="px-4 py-2 border-b flex items-center justify-center gap-1.5" style={{ background: "#F2E0DD", borderColor: "#1C1F1B22" }}>
+            <span className="text-xs font-bold" style={{ color: "#E1543D" }}>Сделка отменена</span>
           </div>
         )}
 
@@ -3330,6 +3553,21 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
           ) : (
             messages.map((m) => {
               const mine = m.sender_ref === currentUser.ref;
+              if (m.offer_amount) {
+                return (
+                  <div key={m.id} className={`max-w-[80%] px-3 py-2.5 rounded-2xl text-sm font-body ${mine ? "self-end" : "self-start"}`} style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                    <p className="font-bold flex items-center gap-1"><KeyRound size={13} /> {m.content}</p>
+                    {m.offer_status === "pending" && !mine && (
+                      <div className="flex gap-1.5 mt-2">
+                        <button onClick={() => respondToOffer(m.id, true)} className="px-2.5 py-1 rounded-lg text-xs font-bold text-white" style={{ background: "#2F6B4F" }}>Принять</button>
+                        <button onClick={() => respondToOffer(m.id, false)} className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "#1C1F1B", color: "#fff" }}>Отклонить</button>
+                      </div>
+                    )}
+                    {m.offer_status === "accepted" && <p className="text-xs font-bold mt-1">✅ Принято</p>}
+                    {m.offer_status === "declined" && <p className="text-xs font-bold mt-1">❌ Отклонено</p>}
+                  </div>
+                );
+              }
               return (
                 <div key={m.id} className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm font-body ${mine ? "self-end" : "self-start"}`} style={{ background: mine ? "#2F6B4F" : "#fff", color: mine ? "#fff" : "#1C1F1B" }}>
                   {m.voice_url ? <audio controls src={m.voice_url} className="h-9" style={{ maxWidth: 200 }} /> : m.content}
@@ -3338,20 +3576,34 @@ function ChatModal({ currentUser, myName, listingId, otherRef, otherName, onClos
             })
           )}
         </div>
-        <div className="p-3 border-t flex gap-2" style={{ borderColor: "#1C1F1B22" }}>
-          {isBlocked ? (
-            <p className="flex-1 text-center text-xs font-bold py-2.5" style={{ color: "#8B8677" }}>Общение с этим пользователем недоступно</p>
-          ) : (
-            <>
-              <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Написать сообщение..." className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none border-2" style={{ borderColor: "#1C1F1B22" }} />
-              <button onClick={recording ? stopRecording : startRecording} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: recording ? "#E1543D" : "#3A3D37" }}>
-                {recording ? <Square size={14} color="#fff" fill="#fff" /> : <Mic size={16} color="#fff" />}
-              </button>
-              <button onClick={send} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
-                <Send size={16} color="#fff" />
-              </button>
-            </>
+        <div className="border-t" style={{ borderColor: "#1C1F1B22" }}>
+          {voiceError && <p className="text-center text-[11px] font-bold pt-2" style={{ color: "#E1543D" }}>{voiceError}</p>}
+          {showOfferForm && !isBlocked && (
+            <div className="flex gap-2 p-3 pb-0">
+              <input value={offerAmount} onChange={(e) => setOfferAmount(e.target.value.replace(/\D/g, ""))} placeholder="Твоя цена, ₽" inputMode="numeric" className="flex-1 px-3 py-2 rounded-lg text-sm border-2" style={{ borderColor: "#1C1F1B22" }} />
+              <button onClick={sendOffer} style={{ background: "#FFC93C" }} className="px-4 py-2 rounded-lg text-xs font-bold">Отправить</button>
+            </div>
           )}
+          <div className="p-3 flex gap-2">
+            {isBlocked ? (
+              <p className="flex-1 text-center text-xs font-bold py-2.5" style={{ color: "var(--yk-muted)" }}>Общение с этим пользователем недоступно</p>
+            ) : (
+              <>
+                {otherRef !== SUPPORT_REF && (
+                  <button onClick={() => setShowOfferForm(!showOfferForm)} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: showOfferForm ? "#FFC93C" : "#3A3D37" }}>
+                    <KeyRound size={16} color={showOfferForm ? "#1C1F1B" : "#fff"} />
+                  </button>
+                )}
+                <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Написать сообщение..." className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none border-2" style={{ borderColor: "#1C1F1B22" }} />
+                <button onClick={recording ? stopRecording : startRecording} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: recording ? "#E1543D" : "#3A3D37" }}>
+                  {recording ? <Square size={14} color="#fff" fill="#fff" /> : <Mic size={16} color="#fff" />}
+                </button>
+                <button onClick={send} className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "#2F6B4F" }}>
+                  <Send size={16} color="#fff" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
