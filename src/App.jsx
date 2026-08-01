@@ -6,7 +6,7 @@ import {
   Heart, Star, Flag, Trash2, Pencil, ArrowUpDown, Bookmark, Truck, Repeat, Eye, ChevronLeft, ChevronRight,
   QrCode, Timer, Video, PhoneCall, PhoneOff, Calendar, Users, TrendingDown, Clock,
   Upload, BarChart3, Store, RotateCw, Boxes, MessageSquareText, Briefcase, Flame, Crown, Share2,
-  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound, Filter, SlidersHorizontal, UserX, Mic, Square
+  Moon, Sun, Award, Sparkles, ShoppingCart, KeyRound, Filter, SlidersHorizontal, UserX, Mic, Square, Film, ThumbsUp
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import Papa from "papaparse";
@@ -248,6 +248,7 @@ export default function App() {
   const [showEditProfile, setShowEditProfile] = useState(false);
 
   const [activeChat, setActiveChat] = useState(null);
+  const [activeStoryGroup, setActiveStoryGroup] = useState(null);
   const [deepLinkSeller, setDeepLinkSeller] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("yarmarka_dark") === "1");
@@ -489,6 +490,13 @@ export default function App() {
     loadListings();
   }
 
+  async function handleArchive(id, archive) {
+    if (!supabase) return;
+    await supabase.from("listings").update({ archived_at: archive ? new Date().toISOString() : null }).eq("id", id);
+    flashToast(archive ? "Объявление в архиве" : "Объявление восстановлено");
+    loadListings();
+  }
+
   async function toggleCart(listingId) {
     if (!requireAuth()) return;
     const inCart = cartIds.has(listingId);
@@ -553,6 +561,7 @@ export default function App() {
       .filter((l) => !l.publish_at || new Date(l.publish_at) <= new Date() || l.author_ref === currentUser?.ref)
       .filter((l) => (l.post_type || "sell") === boardMode)
       .filter((l) => !l.wholesale_only)
+      .filter((l) => !l.archived_at)
       .filter((l) => !(l.stock_quantity !== null && l.stock_quantity !== undefined && l.stock_quantity <= 0))
       .filter((l) => activeCat === "all" || l.category === activeCat)
       .filter((l) => !freeOnly || Number(l.price) === 0)
@@ -590,6 +599,17 @@ export default function App() {
   }, [listings, activeCat, freeOnly, search, sortBy, boardMode, priceMax, priceMin, cityFilter, conditionFilter, barterOnly, currentUser, userLocation]);
 
   const favoriteListings = useMemo(() => listings.filter((l) => favoriteIds.has(l.id)), [listings, favoriteIds]);
+
+  const activeStories = useMemo(() => {
+    const stories = listings.filter((l) => l.story_expires_at && new Date(l.story_expires_at) > new Date() && l.images?.length > 0);
+    const byAuthor = new Map();
+    stories.forEach((l) => {
+      const key = l.author_ref;
+      if (!byAuthor.has(key)) byAuthor.set(key, { authorRef: key, authorName: l.author_name, items: [] });
+      byAuthor.get(key).items.push(l);
+    });
+    return Array.from(byAuthor.values());
+  }, [listings]);
 
   const featuredListings = useMemo(() => {
     return listings
@@ -655,9 +675,9 @@ export default function App() {
         <>
           {tab === "feed" && (
             <>
-              <div className="max-w-6xl mx-auto px-4 pt-3 flex gap-2">
-                {[["sell", "Продают"], ["want", "Ищут"]].map(([val, label]) => (
-                  <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border transition active:scale-95"
+              <div className="max-w-6xl mx-auto px-4 pt-3 flex gap-2 overflow-x-auto">
+                {[["sell", "Товары"], ["service", "Услуги"], ["job", "Работа"], ["want", "Ищут"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setBoardMode(val)} className="px-3.5 py-1.5 rounded-full text-xs font-bold border transition active:scale-95 flex-shrink-0"
                     style={boardMode === val ? { background: "#FFC93C", color: "#1C1F1B", borderColor: "#FFC93C" } : { background: "transparent", color: "var(--yk-text)", borderColor: "#8B867755" }}>
                     {label}
                   </button>
@@ -673,6 +693,9 @@ export default function App() {
                   <SlidersHorizontal size={13} /> Фильтры
                 </button>
               </div>
+              {activeStories.length > 0 && !search.trim() && (
+                <StoriesStrip groups={activeStories} onOpen={(g) => setActiveStoryGroup(g)} />
+              )}
               {featuredListings.length > 0 && activeCat === "all" && !freeOnly && !search.trim() && boardMode === "sell" && (
                 <FeaturedCarousel listings={featuredListings} onOpen={(l) => setShowDetail(l)} />
               )}
@@ -730,6 +753,10 @@ export default function App() {
             <B2BTab listings={listings} onOpenListing={(l) => setShowDetail(l)} onOpenCreate={() => { requireAuth() ? setShowCreate(true) : null; }} onOpenBulk={() => setTab("profile")} />
           )}
 
+          {tab === "shorts" && (
+            <ShortsTab currentUser={currentUser} profile={profile} myListings={myListings} onRequireAuth={requireAuth} onOpenListing={(l) => setShowDetail(l)} />
+          )}
+
           {tab === "events" && (
             <EventsTab currentUser={currentUser} profile={profile} onRequireAuth={requireAuth} />
           )}
@@ -757,6 +784,7 @@ export default function App() {
                 onOpenListing={(l) => setShowDetail(l)}
                 onEditListing={(l) => setEditListing(l)}
                 onDeleteListing={handleDelete}
+                onArchiveListing={handleArchive}
                 onRepost={(l) => { setRepostSource(l); setShowCreate(true); }}
                 onSupport={() => setActiveChat({ listingId: null, otherRef: SUPPORT_REF, otherName: "Поддержка" })}
                 onLogout={async () => { if (supabase && currentUser.source === "site") await supabase.auth.signOut(); }}
@@ -864,6 +892,10 @@ export default function App() {
         <SellerProfileModal sellerRef={deepLinkSeller} onClose={() => setDeepLinkSeller(null)} onOpenListing={() => {}} />
       )}
 
+      {activeStoryGroup && (
+        <StoryViewer group={activeStoryGroup} onClose={() => setActiveStoryGroup(null)} onOpenListing={(l) => { setActiveStoryGroup(null); setShowDetail(l); }} />
+      )}
+
       {showWelcome && (
         <WelcomeTour onDone={() => { localStorage.setItem("yarmarka_onboarded", "1"); setShowWelcome(false); }} />
       )}
@@ -934,6 +966,7 @@ function WelcomeTour({ onDone }) {
 function BottomNav({ tab, setTab, onOpenChats, unreadCount, isWholesaler }) {
   const items = [
     { id: "feed", label: "Лента", icon: Home },
+    { id: "shorts", label: "Shorts", icon: Film },
     { id: "favorites", label: "Избранное", icon: Heart },
     ...(isWholesaler ? [{ id: "b2b", label: "B2B", icon: Briefcase }] : []),
     { id: "events", label: "События", icon: Calendar },
@@ -1048,6 +1081,74 @@ function FiltersModal({ priceMin, setPriceMin, priceMax, setPriceMax, cityFilter
   );
 }
 
+function StoriesStrip({ groups, onOpen }) {
+  return (
+    <div className="max-w-6xl mx-auto px-4 pt-3 flex gap-3 overflow-x-auto">
+      {groups.map((g) => (
+        <button key={g.authorRef} onClick={() => onOpen(g)} className="flex flex-col items-center gap-1 flex-shrink-0 w-16">
+          <div className="w-14 h-14 rounded-full p-0.5" style={{ background: "linear-gradient(135deg, #FFC93C, #E1543D)" }}>
+            <div className="w-full h-full rounded-full overflow-hidden border-2" style={{ borderColor: "var(--yk-bg, #F2EFE4)" }}>
+              <img src={g.items[0].images[0]} alt="" className="w-full h-full object-cover" />
+            </div>
+          </div>
+          <span className="text-[10px] font-bold truncate w-full text-center" style={{ color: "var(--yk-text)" }}>{g.authorName || "Продавец"}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StoryViewer({ group, onClose, onOpenListing }) {
+  const [idx, setIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const item = group.items[idx];
+
+  useEffect(() => {
+    setProgress(0);
+    const start = Date.now();
+    const duration = 5000;
+    const interval = setInterval(() => {
+      const pct = ((Date.now() - start) / duration) * 100;
+      if (pct >= 100) {
+        clearInterval(interval);
+        if (idx < group.items.length - 1) setIdx(idx + 1);
+        else onClose();
+      } else {
+        setProgress(pct);
+      }
+    }, 50);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx]);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col" style={{ background: "#1C1F1B" }}>
+      <div className="flex gap-1 px-3 pt-3">
+        {group.items.map((_, i) => (
+          <div key={i} className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "#ffffff33" }}>
+            <div className="h-full" style={{ width: `${i < idx ? 100 : i === idx ? progress : 0}%`, background: "#FFC93C", transition: "width 0.05s linear" }} />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between px-4 py-3">
+        <span className="text-sm font-bold text-white">{group.authorName || "Продавец"}</span>
+        <button onClick={onClose}><X size={22} color="#fff" /></button>
+      </div>
+      <div className="flex-1 relative flex items-center justify-center" onClick={() => (idx < group.items.length - 1 ? setIdx(idx + 1) : onClose())}>
+        <img src={item.images[0]} alt={item.title} className="max-w-full max-h-full object-contain" />
+        <button onClick={(e) => { e.stopPropagation(); if (idx > 0) setIdx(idx - 1); }} className="absolute left-0 top-0 bottom-0 w-1/3" />
+      </div>
+      <button onClick={(e) => { e.stopPropagation(); onOpenListing(item); }} className="m-4 p-3 rounded-xl flex items-center justify-between" style={{ background: "#F2EFE4" }}>
+        <div className="text-left">
+          <p className="font-body font-bold text-sm line-clamp-1">{item.title}</p>
+          <p className="font-mono font-bold text-sm" style={{ color: "#2F6B4F" }}>{Number(item.price) === 0 ? "Даром" : `${Number(item.price).toLocaleString("ru-RU")} ₽`}</p>
+        </div>
+        <span className="text-xs font-bold px-3 py-2 rounded-lg text-white flex-shrink-0" style={{ background: "#2F6B4F" }}>Смотреть</span>
+      </button>
+    </div>
+  );
+}
+
 function FeaturedCarousel({ listings, onOpen }) {
   return (
     <div className="pt-3">
@@ -1138,9 +1239,24 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
   const Icon = catIcon(listing.category);
   const isFree = Number(listing.price) === 0;
   const isWant = listing.post_type === "want";
+  const isService = listing.post_type === "service";
+  const isJob = listing.post_type === "job";
   const isReserved = listing.reserved_until && new Date(listing.reserved_until) > new Date();
   const cover = listing.images && listing.images.length > 0 ? listing.images[0] : null;
   const [popHeart, setPopHeart] = useState(false);
+
+  const EMPLOYMENT_LABELS = { full: "Полная занятость", part: "Частичная", remote: "Удалённо", project: "Проектная" };
+
+  function priceLabel() {
+    if (isJob) {
+      const from = Number(listing.price);
+      return listing.salary_to ? `${from.toLocaleString("ru-RU")}–${Number(listing.salary_to).toLocaleString("ru-RU")} ₽` : `от ${from.toLocaleString("ru-RU")} ₽`;
+    }
+    if (isWant) return "Ищу";
+    if (isFree) return isService ? "Договорная" : "Даром";
+    return `${Number(listing.price).toLocaleString("ru-RU")} ₽`;
+  }
+
   return (
     <div onClick={onOpen} className="yk-card text-left rounded-2xl overflow-hidden border-2 relative hover:shadow-2xl cursor-pointer" style={{ background: listing.tint || "#EAE3F0", borderColor: "#1C1F1B22" }}>
       <button
@@ -1150,7 +1266,11 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
       >
         <Heart size={14} color={isFavorite ? "#E1543D" : "#F2EFE4"} fill={isFavorite ? "#E1543D" : "none"} className={popHeart ? "animate-heartpop" : ""} />
       </button>
-      {isWant ? (
+      {isJob ? (
+        <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#4EA5D9", color: "#fff" }}>РАБОТА</div>
+      ) : isService ? (
+        <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#7FB069", color: "#fff" }}>УСЛУГА</div>
+      ) : isWant ? (
         <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#C7B8E8", color: "#1C1F1B" }}>ИЩУ</div>
       ) : isFree ? (
         <div className="absolute top-5 left-[-30px] rotate-[-38deg] font-mono font-bold text-[10px] px-8 py-1 shadow z-10" style={{ background: "#FFC93C", color: "#1C1F1B" }}>ДАРОМ</div>
@@ -1187,7 +1307,12 @@ function ListingCard({ listing, onOpen, isFavorite, onToggleFavorite }) {
           </div>
         )}
         <h3 className="font-body font-bold text-sm mb-1 line-clamp-2" style={{ color: "#1C1F1B" }}>{listing.title}</h3>
-        <p className="font-mono font-bold text-lg mb-2" style={{ color: "#2F6B4F" }}>{isWant ? "Ищу" : isFree ? "Даром" : `${Number(listing.price).toLocaleString("ru-RU")} ₽`}</p>
+        <p className="font-mono font-bold text-lg mb-2" style={{ color: "#2F6B4F" }}>{priceLabel()}</p>
+        {isJob && listing.employment_type && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-2" style={{ background: "#E6ECF2", color: "#1C1F1B" }}>
+            <Briefcase size={10} /> {EMPLOYMENT_LABELS[listing.employment_type] || listing.employment_type}
+          </span>
+        )}
         {listing.barter && (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-2" style={{ background: "#E6ECF2", color: "#1C1F1B" }}>
             <Repeat size={10} /> Обмен
@@ -1287,6 +1412,9 @@ function EmptyState({ onCreate, hasAny }) {
 function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWholesaler, isPro, onOpenSubscribe, allListings }) {
   const isEdit = mode === "edit";
   const [postType, setPostType] = useState(initial?.post_type || "sell");
+  const [salaryTo, setSalaryTo] = useState(initial?.salary_to ?? "");
+  const [employmentType, setEmploymentType] = useState(initial?.employment_type || "full");
+  const [isStory, setIsStory] = useState(!!initial?.story_expires_at);
   const [title, setTitle] = useState(initial?.title || "");
   const [price, setPrice] = useState(initial ? String(initial.price ?? "") : "");
   const [category, setCategory] = useState(initial?.category || "electronics");
@@ -1363,6 +1491,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
       stock_quantity: stockQuantity === "" ? null : Math.max(0, Number(stockQuantity)),
       wholesale_only: wholesaleOnly,
       publish_at: publishAt ? new Date(publishAt).toISOString() : null,
+      salary_to: postType === "job" && salaryTo !== "" ? Number(salaryTo) : null,
+      employment_type: postType === "job" ? employmentType : null,
+      story_expires_at: isStory ? new Date(Date.now() + 24 * 60 * 60000).toISOString() : null,
     });
     setSubmitting(false);
   }
@@ -1381,9 +1512,9 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
           </div>
         ) : (
           <div className="p-5 flex flex-col gap-4">
-            <div className="flex gap-2">
-              {[["sell", "Продаю"], ["want", "Ищу"]].map(([val, label]) => (
-                <button key={val} onClick={() => setPostType(val)} className="flex-1 px-3 py-2.5 rounded-lg text-sm font-bold border-2 font-body"
+            <div className="grid grid-cols-2 gap-2">
+              {[["sell", "Продаю"], ["want", "Ищу"], ["service", "Услуга"], ["job", "Вакансия"]].map(([val, label]) => (
+                <button key={val} onClick={() => setPostType(val)} className="px-3 py-2.5 rounded-lg text-sm font-bold border-2 font-body"
                   style={postType === val ? { background: "#2F6B4F", color: "#fff", borderColor: "#2F6B4F" } : { background: "#fff", borderColor: "#1C1F1B22", color: "#1C1F1B" }}>
                   {label}
                 </button>
@@ -1414,13 +1545,34 @@ function ListingFormModal({ mode, initial, onClose, onSubmit, limitReached, isWh
                 )}
               </div>
             </Field>
-            <Field label="Цена, ₽ (0 = даром)">
+            <label className="flex items-center gap-2 cursor-pointer p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+              <input type="checkbox" checked={isStory} onChange={(e) => setIsStory(e.target.checked)} className="w-4 h-4" />
+              <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--yk-muted2)" }}><Sparkles size={13} /> Показать как историю на 24 часа</span>
+            </label>
+            <Field label={postType === "job" ? "Зарплата от, ₽" : postType === "service" ? "Цена за услугу, ₽ (0 = договорная)" : "Цена, ₽ (0 = даром)"}>
               <input value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" inputMode="numeric" className="input font-mono" />
-              {marketHint && <p className="text-[11px] mt-1" style={{ color: "var(--yk-muted)" }}>Похожие товары продают в среднем за {marketHint.toLocaleString("ru-RU")} ₽</p>}
+              {marketHint && postType === "sell" && <p className="text-[11px] mt-1" style={{ color: "var(--yk-muted)" }}>Похожие товары продают в среднем за {marketHint.toLocaleString("ru-RU")} ₽</p>}
             </Field>
+            {postType === "job" && (
+              <>
+                <Field label="Зарплата до, ₽ (необязательно)">
+                  <input value={salaryTo} onChange={(e) => setSalaryTo(e.target.value.replace(/[^0-9]/g, ""))} placeholder="Верхняя вилка" inputMode="numeric" className="input font-mono" />
+                </Field>
+                <Field label="Занятость">
+                  <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} className="input">
+                    <option value="full">Полная занятость</option>
+                    <option value="part">Частичная занятость</option>
+                    <option value="remote">Удалённо</option>
+                    <option value="project">Проектная работа</option>
+                  </select>
+                </Field>
+              </>
+            )}
+            {postType !== "job" && (
             <Field label="Количество в наличии (необязательно)">
               <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value.replace(/[^0-9]/g, ""))} placeholder="Оставь пустым, если товар один" inputMode="numeric" className="input font-mono" />
             </Field>
+            )}
             <Field label="Категория">
               <div className="grid grid-cols-2 gap-2">
                 {CATEGORIES.map((c) => (
@@ -2044,15 +2196,34 @@ function QRModal({ listing, onClose }) {
 function ReviewModal({ sellerRef, reviewerRef, dealId, onClose, onSaved }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
+  const [images, setImages] = useState([]);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    const room = 3 - images.length;
+    if (room <= 0) return;
+    setUploading(true);
+    try {
+      const compressed = await Promise.all(files.slice(0, room).map((f) => compressImage(f, 700, 0.6)));
+      setImages((prev) => [...prev, ...compressed]);
+    } catch {
+      setError("Не получилось загрузить фото");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function submit() {
     if (!supabase) return;
     if (!sellerRef) { setError("У этого объявления нет привязанного продавца — отзыв оставить нельзя"); return; }
     setBusy(true);
     setError("");
-    const { data, error } = await supabase.from("reviews").insert({ seller_ref: sellerRef, reviewer_ref: reviewerRef, deal_id: dealId, rating, comment: comment.trim() }).select().single();
+    const { data, error } = await supabase.from("reviews").insert({ seller_ref: sellerRef, reviewer_ref: reviewerRef, deal_id: dealId, rating, comment: comment.trim(), images }).select().single();
     setBusy(false);
     if (error) { setError("Не получилось отправить: " + error.message); return; }
     onSaved(data);
@@ -2073,6 +2244,22 @@ function ReviewModal({ sellerRef, reviewerRef, dealId, onClose, onSaved }) {
           ))}
         </div>
         <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder="Как прошла сделка? (необязательно)" className="input resize-none mb-3" />
+        <div className="flex flex-wrap gap-2 mb-3">
+          {images.map((src, idx) => (
+            <div key={idx} className="relative w-14 h-14 rounded-lg overflow-hidden border-2" style={{ borderColor: "#1C1F1B22" }}>
+              <img src={src} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => setImages((p) => p.filter((_, i) => i !== idx))} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: "#1C1F1B" }}>
+                <X size={9} color="#F2EFE4" />
+              </button>
+            </div>
+          ))}
+          {images.length < 3 && (
+            <label className="w-14 h-14 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer" style={{ borderColor: "#1C1F1B44" }}>
+              {uploading ? <span className="text-[9px] font-bold">...</span> : <ImagePlus size={16} style={{ color: "var(--yk-muted)" }} />}
+              <input type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
+            </label>
+          )}
+        </div>
         {error && <p className="text-xs font-bold mb-3" style={{ color: "#E1543D" }}>{error}</p>}
         <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm w-full disabled:opacity-60">
           {busy ? "Отправляем..." : "Отправить отзыв"}
@@ -2191,6 +2378,28 @@ function SellerProfileModal({ sellerRef, onClose }) {
                 </div>
               )}
             </div>
+
+            {reviews.length > 0 && (
+              <div>
+                <h3 className="font-display font-bold text-sm mb-2">Отзывы ({reviews.length})</h3>
+                <div className="flex flex-col gap-3">
+                  {reviews.map((r) => (
+                    <div key={r.id} className="p-3 rounded-lg" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <StarRow value={r.rating} size={12} />
+                        <span className="text-[10px]" style={{ color: "var(--yk-muted)" }}>{timeAgo(r.created_at)}</span>
+                      </div>
+                      {r.comment && <p className="text-xs mb-2">{r.comment}</p>}
+                      {r.images && r.images.length > 0 && (
+                        <div className="flex gap-1.5">
+                          {r.images.map((src, i) => <img key={i} src={src} alt="" className="w-12 h-12 rounded-lg object-cover" />)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2566,9 +2775,110 @@ function SubscribeModal({ currentUser, profile, onClose }) {
   );
 }
 
-function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onRepost, onSupport, onLogout, onEdit, onOpenSubscribe, onOpenRequisites }) {
+function MyListingsView({ myListings, onClose, onOpenListing, onEditListing, onRepost, onDeleteListing, onArchiveListing }) {
+  const [tab, setTab] = useState("active");
+  const [favCounts, setFavCounts] = useState({});
+  const [confirmId, setConfirmId] = useState(null);
+
+  useEffect(() => {
+    if (!supabase || myListings.length === 0) return;
+    supabase.from("favorites").select("listing_id").in("listing_id", myListings.map((l) => l.id)).then(({ data }) => {
+      const counts = {};
+      (data || []).forEach((f) => { counts[f.listing_id] = (counts[f.listing_id] || 0) + 1; });
+      setFavCounts(counts);
+    });
+  }, [myListings]);
+
+  const groups = {
+    active: myListings.filter((l) => !l.archived_at && (!l.publish_at || new Date(l.publish_at) <= new Date())),
+    scheduled: myListings.filter((l) => !l.archived_at && l.publish_at && new Date(l.publish_at) > new Date()),
+    archived: myListings.filter((l) => l.archived_at),
+  };
+  const items = groups[tab];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677", "--yk-muted2": "#5B584E" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Мои объявления</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="flex gap-2 px-5 pt-4">
+          {[["active", `Активные (${groups.active.length})`], ["scheduled", `Отложенные (${groups.scheduled.length})`], ["archived", `Архив (${groups.archived.length})`]].map(([val, label]) => (
+            <button key={val} onClick={() => setTab(val)} className="px-3 py-1.5 rounded-full text-xs font-bold border-2 flex-shrink-0"
+              style={tab === val ? { background: "#2F6B4F", color: "#fff", borderColor: "#2F6B4F" } : { background: "#fff", borderColor: "#1C1F1B22" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="p-5 flex flex-col gap-3">
+          {items.length === 0 ? (
+            <p className="text-sm text-center py-10" style={{ color: "var(--yk-muted)" }}>Здесь пусто</p>
+          ) : (
+            items.map((l) => (
+              <div key={l.id} className="rounded-xl p-3 flex gap-3" style={{ background: "#fff", border: "2px solid #1C1F1B22" }}>
+                <button onClick={() => onOpenListing(l)} className="flex-shrink-0">
+                  {l.images?.[0] ? (
+                    <img src={l.images[0]} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: l.tint || "#EAE3F0" }}>
+                      <Tag size={20} style={{ color: "#2F6B4F" }} />
+                    </div>
+                  )}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <button onClick={() => onOpenListing(l)} className="text-left w-full">
+                    <p className="text-sm font-bold line-clamp-1">{l.title}</p>
+                    <p className="font-mono font-bold text-sm mb-1" style={{ color: "#2F6B4F" }}>{Number(l.price) === 0 ? "Даром" : `${Number(l.price).toLocaleString("ru-RU")} ₽`}</p>
+                  </button>
+                  <div className="flex items-center gap-3 text-[11px] mb-2" style={{ color: "var(--yk-muted)" }}>
+                    <span className="flex items-center gap-1"><Eye size={11} /> {l.views || 0}</span>
+                    <span className="flex items-center gap-1"><Heart size={11} /> {favCounts[l.id] || 0}</span>
+                    <span>{timeAgo(l.created_at)}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => onEditListing(l)} className="px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1" style={{ background: "#E8E3D2" }}>
+                      <Pencil size={10} /> Изменить
+                    </button>
+                    <button onClick={() => onRepost(l)} className="px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1" style={{ background: "#E8E3D2" }}>
+                      <RotateCw size={10} /> Повторить
+                    </button>
+                    {tab === "archived" ? (
+                      <button onClick={() => onArchiveListing(l.id, false)} className="px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1" style={{ background: "#C7E8B0" }}>
+                        Вернуть
+                      </button>
+                    ) : (
+                      <button onClick={() => onArchiveListing(l.id, true)} className="px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1" style={{ background: "#E8E3D2" }}>
+                        В архив
+                      </button>
+                    )}
+                    <button onClick={() => setConfirmId(l.id)} className="px-2 py-1 rounded-md text-[11px] font-bold" style={{ background: "#F2E0DD", color: "#E1543D" }}>
+                      Удалить
+                    </button>
+                  </div>
+                  {confirmId === l.id && (
+                    <div className="mt-2 p-2 rounded-lg flex items-center justify-between gap-2" style={{ background: "#F2E0DD" }}>
+                      <span className="text-[11px] font-bold">Удалить навсегда?</span>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setConfirmId(null)} className="px-2 py-1 rounded-md text-[11px] font-bold" style={{ background: "#fff" }}>Нет</button>
+                        <button onClick={() => { onDeleteListing(l.id); setConfirmId(null); }} className="px-2 py-1 rounded-md text-[11px] font-bold text-white" style={{ background: "#E1543D" }}>Да</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDarkMode, savedSearches, onApplySearch, onDeleteSearch, onOpenListing, onEditListing, onDeleteListing, onArchiveListing, onRepost, onSupport, onLogout, onEdit, onOpenSubscribe, onOpenRequisites }) {
   const [showBulk, setShowBulk] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showMyListings, setShowMyListings] = useState(false);
   const [stats, setStats] = useState(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [dealsCount, setDealsCount] = useState(0);
@@ -2755,12 +3065,17 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
         </div>
       )}
 
-      <h3 className="font-display font-bold text-sm mb-3">Мои объявления ({myListings.length})</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-display font-bold text-sm">Мои объявления ({myListings.length})</h3>
+        {myListings.length > 0 && (
+          <button onClick={() => setShowMyListings(true)} className="text-xs font-bold underline" style={{ color: "#2F6B4F" }}>Все →</button>
+        )}
+      </div>
       {myListings.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--yk-muted)" }}>Ты ещё ничего не разместил</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {myListings.map((l) => (
+          {myListings.filter((l) => !l.archived_at).slice(0, 6).map((l) => (
             <div key={l.id} className="relative">
               <ListingCard listing={l} onOpen={() => onOpenListing(l)} isFavorite={false} onToggleFavorite={() => {}} />
               <div className="absolute bottom-3 right-3 flex gap-1.5 z-10">
@@ -2793,6 +3108,17 @@ function ProfileTab({ profile, currentUser, myListings, streak, darkMode, setDar
 
       {showShare && <ShareStorefrontModal profile={profile} currentUser={currentUser} onClose={() => setShowShare(false)} />}
       {showBulk && <BulkUploadModal currentUser={currentUser} profile={profile} onClose={() => setShowBulk(false)} />}
+      {showMyListings && (
+        <MyListingsView
+          myListings={myListings}
+          onClose={() => setShowMyListings(false)}
+          onOpenListing={onOpenListing}
+          onEditListing={onEditListing}
+          onRepost={onRepost}
+          onDeleteListing={onDeleteListing}
+          onArchiveListing={onArchiveListing}
+        />
+      )}
 
       <p className="text-center mt-6">
         <button onClick={onOpenRequisites} className="text-[10px] underline" style={{ color: "var(--yk-muted)" }}>Реквизиты</button>
@@ -2948,6 +3274,155 @@ function B2BTab({ listings, onOpenListing, onOpenCreate, onOpenBulk }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ShortsTab({ currentUser, profile, myListings, onRequireAuth, onOpenListing }) {
+  const [shorts, setShorts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [likedIds, setLikedIds] = useState(new Set());
+
+  async function load() {
+    if (!supabase) return;
+    setLoading(true);
+    const { data } = await supabase.from("shorts").select("*").order("created_at", { ascending: false });
+    setShorts(data || []);
+    if (currentUser) {
+      const { data: likes } = await supabase.from("short_likes").select("short_id").eq("ref", currentUser.ref);
+      setLikedIds(new Set((likes || []).map((l) => l.short_id)));
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [currentUser]);
+
+  async function toggleLike(shortId) {
+    if (!onRequireAuth()) return;
+    const has = likedIds.has(shortId);
+    const next = new Set(likedIds);
+    if (has) { next.delete(shortId); await supabase.from("short_likes").delete().eq("short_id", shortId).eq("ref", currentUser.ref); }
+    else { next.add(shortId); await supabase.from("short_likes").insert({ short_id: shortId, ref: currentUser.ref }); }
+    setLikedIds(next);
+  }
+
+  return (
+    <div className="max-w-md mx-auto relative" style={{ height: "calc(100vh - 180px)" }}>
+      <div className="absolute top-3 right-3 z-20">
+        <button onClick={() => (onRequireAuth() ? setShowCreate(true) : null)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "#2F6B4F" }}>
+          <Plus size={18} color="#fff" />
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-center py-24 text-sm" style={{ color: "var(--yk-muted)" }}>Загружаем...</p>
+      ) : shorts.length === 0 ? (
+        <div className="text-center py-24 px-4">
+          <Film size={28} className="mx-auto mb-3" style={{ color: "var(--yk-muted)" }} />
+          <p className="text-sm mb-4" style={{ color: "var(--yk-muted)" }}>Пока нет короткого контента — покажи свой товар живо</p>
+          <button onClick={() => (onRequireAuth() ? setShowCreate(true) : null)} style={{ background: "#2F6B4F" }} className="text-white px-5 py-2.5 rounded-lg font-body font-bold text-sm">Создать</button>
+        </div>
+      ) : (
+        <div className="h-full overflow-y-auto snap-y snap-mandatory rounded-2xl" style={{ scrollSnapType: "y mandatory" }}>
+          {shorts.map((s) => (
+            <div key={s.id} className="h-full w-full relative rounded-2xl overflow-hidden mb-3" style={{ scrollSnapAlign: "start", background: "#1C1F1B" }}>
+              <img src={s.images[0]} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, transparent 50%, #1C1F1BEE 100%)" }} />
+              <button onClick={() => toggleLike(s.id)} className="absolute right-4 bottom-28 flex flex-col items-center gap-1">
+                <ThumbsUp size={26} color={likedIds.has(s.id) ? "#FFC93C" : "#fff"} fill={likedIds.has(s.id) ? "#FFC93C" : "none"} />
+              </button>
+              <div className="absolute bottom-0 left-0 right-0 p-4">
+                <p className="text-white font-bold text-sm mb-1">{s.author_name}</p>
+                {s.caption && <p className="text-white text-xs mb-2 line-clamp-2">{s.caption}</p>}
+                {s.listing_id && (
+                  <button onClick={() => { const l = myListings.find((x) => x.id === s.listing_id); if (l) onOpenListing(l); }} className="text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: "#FFC93C", color: "#1C1F1B" }}>
+                    Смотреть товар
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showCreate && (
+        <CreateShortModal currentUser={currentUser} profile={profile} myListings={myListings} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
+      )}
+    </div>
+  );
+}
+
+function CreateShortModal({ currentUser, profile, myListings, onClose, onCreated }) {
+  const [images, setImages] = useState([]);
+  const [caption, setCaption] = useState("");
+  const [listingId, setListingId] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const compressed = await compressImage(file, 1000, 0.7);
+      setImages([compressed]);
+    } catch {
+      setError("Не получилось загрузить фото");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function submit() {
+    if (images.length === 0) return setError("Добавь фото");
+    setBusy(true);
+    const { error } = await supabase.from("shorts").insert({
+      author_ref: currentUser.ref, author_name: profile.name,
+      images, caption: caption.trim(), listing_id: listingId || null,
+    });
+    setBusy(false);
+    if (error) { setError("Не получилось опубликовать"); return; }
+    onCreated();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "#1C1F1BCC" }}>
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto" style={{ background: "#F2EFE4", "--yk-muted": "#8B8677" }}>
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b" style={{ background: "#F2EFE4", borderColor: "#1C1F1B22" }}>
+          <h2 className="font-display font-bold text-base">Новый Shorts</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          {images.length > 0 ? (
+            <div className="relative">
+              <img src={images[0]} alt="" className="w-full rounded-xl aspect-[9/16] object-cover" />
+              <button onClick={() => setImages([])} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "#1C1F1BCC" }}>
+                <X size={14} color="#fff" />
+              </button>
+            </div>
+          ) : (
+            <label className="w-full aspect-[9/16] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer" style={{ borderColor: "#1C1F1B44" }}>
+              {uploading ? <span className="text-xs font-bold">Загрузка...</span> : (<><ImagePlus size={24} style={{ color: "var(--yk-muted)" }} /><span className="text-xs font-bold" style={{ color: "var(--yk-muted)" }}>Добавить фото</span></>)}
+              <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+            </label>
+          )}
+          <Field label="Подпись"><textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={2} className="input resize-none" placeholder="Расскажи о товаре живо" /></Field>
+          {myListings.length > 0 && (
+            <Field label="Привязать к объявлению (необязательно)">
+              <select value={listingId} onChange={(e) => setListingId(e.target.value)} className="input">
+                <option value="">Без привязки</option>
+                {myListings.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+              </select>
+            </Field>
+          )}
+          {error && <p className="text-xs font-bold" style={{ color: "#E1543D" }}>{error}</p>}
+          <button onClick={submit} disabled={busy} style={{ background: "#2F6B4F" }} className="text-white py-3 rounded-lg font-body font-bold text-sm disabled:opacity-60">
+            {busy ? "Публикуем..." : "Опубликовать"}
+          </button>
+        </div>
+        <style>{`.input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #1C1F1B22; background: #fff; font-family: 'Manrope', sans-serif; font-size: 13px; outline: none; }`}</style>
+      </div>
     </div>
   );
 }
